@@ -89,8 +89,8 @@ for SYSDEV in /sys/class/block/*; do
     echo
     echo "--- LAUFWERKSBEZEICHNUNG: VORSCHAU ---"
 
-    # Modell und Seriennummer immer aus derselben SMART-Abfrage lesen.
-    # SAT nur fuer sd-/hd-Laufwerke versuchen.
+    # Modell, Seriennummer und gegebenenfalls Hersteller werden
+    # ausschliesslich aus derselben SMART-Abfrage entnommen.
     SMART_INFO="$(smartctl -i "$DISK" 2>/dev/null || true)"
     QUELLE="SMART-Standard"
 
@@ -103,6 +103,12 @@ for SYSDEV in /sys/class/block/*; do
             QUELLE="SMART-SAT"
         fi
     fi
+
+    HERSTELLER="$(
+        printf '%s\\n' "$SMART_INFO" |
+            sed -n -E 's/^[[:space:]]*Vendor:[[:space:]]*//p' |
+            head -n 1
+    )"
 
     MODELL="$(
         printf '%s\\n' "$SMART_INFO" |
@@ -117,17 +123,21 @@ for SYSDEV in /sys/class/block/*; do
     )"
 
     echo "Datenquelle: $QUELLE"
+    echo "Hersteller: ${HERSTELLER:-unbekannt}"
+    echo "Modell: ${MODELL:-nicht verfuegbar}"
+    echo "Hardware-Seriennummer: ${SERIE:-nicht verfuegbar}"
 
-    if [ -n "$MODELL" ] && [ -n "$SERIE" ]; then
-        echo "Modell: $MODELL"
-        echo "Hardware-Seriennummer: $SERIE"
-        echo "HINWEIS: Hersteller und einheitliches Namensformat werden"
-        echo "erst nach Auswertung der tatsaechlichen Geraetedaten festgelegt."
+    if [ -n "$HERSTELLER" ] &&
+       [ -n "$MODELL" ] &&
+       [ -n "$SERIE" ]; then
+        echo "Status: Alle drei Angaben sind vorhanden."
+        echo "HINWEIS: Eine vollstaendige Kennung koennte als Vorschau erzeugt werden."
     else
-        echo "Keine vollstaendige Modell-/Seriennummern-Kombination verfuegbar."
+        echo "Status: Keine vollstaendige Kennung erzeugen."
+        echo "HINWEIS: Fehlende Angaben werden nicht aus USB-Adapterdaten ergaenzt."
     fi
 
-    echo "HINWEIS: Nur Vorschau – keine Aenderung an Unraid oder udev."
+    echo "HINWEIS: Keine Aenderung an Unraid oder udev."
 
     echo
     echo "--- GERAETEPFAD UND USB-ADAPTER ---"
