@@ -87,6 +87,49 @@ for SYSDEV in /sys/class/block/*; do
     fi
 
     echo
+    echo "--- LAUFWERKSBEZEICHNUNG: VORSCHAU ---"
+
+    # Modell und Seriennummer immer aus derselben SMART-Abfrage lesen.
+    # SAT nur fuer sd-/hd-Laufwerke versuchen.
+    SMART_INFO="$(smartctl -i "$DISK" 2>/dev/null || true)"
+    QUELLE="SMART-Standard"
+
+    if [[ "$NAME" =~ ^(sd[a-z]+|hd[a-z]+)$ ]]; then
+        SAT_INFO="$(smartctl -i -d sat "$DISK" 2>/dev/null || true)"
+
+        if printf '%s\\n' "$SAT_INFO" |
+           grep -Eq '^[[:space:]]*Serial Number:[[:space:]]*[^[:space:]]'; then
+            SMART_INFO="$SAT_INFO"
+            QUELLE="SMART-SAT"
+        fi
+    fi
+
+    MODELL="$(
+        printf '%s\\n' "$SMART_INFO" |
+            sed -n -E 's/^[[:space:]]*(Device Model|Model Number):[[:space:]]*//p' |
+            head -n 1
+    )"
+
+    SERIE="$(
+        printf '%s\\n' "$SMART_INFO" |
+            sed -n 's/^[[:space:]]*Serial Number:[[:space:]]*//p' |
+            head -n 1
+    )"
+
+    echo "Datenquelle: $QUELLE"
+
+    if [ -n "$MODELL" ] && [ -n "$SERIE" ]; then
+        echo "Modell: $MODELL"
+        echo "Hardware-Seriennummer: $SERIE"
+        echo "HINWEIS: Hersteller und einheitliches Namensformat werden"
+        echo "erst nach Auswertung der tatsaechlichen Geraetedaten festgelegt."
+    else
+        echo "Keine vollstaendige Modell-/Seriennummern-Kombination verfuegbar."
+    fi
+
+    echo "HINWEIS: Nur Vorschau – keine Aenderung an Unraid oder udev."
+
+    echo
     echo "--- GERAETEPFAD UND USB-ADAPTER ---"
 
     PFAD="$(readlink -f "$SYSDEV/device" 2>/dev/null)" || PFAD=""
