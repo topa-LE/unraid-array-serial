@@ -23,6 +23,15 @@ if ! command -v udevadm >/dev/null 2>&1; then
     exit 1
 fi
 
+# Vorschauwerkzeug aus demselben Verzeichnis wie dieses Skript verwenden.
+SKRIPTVERZEICHNIS="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+VORSCHAUWERKZEUG="$SKRIPTVERZEICHNIS/preview-disk-id.sh"
+
+if [ ! -x "$VORSCHAUWERKZEUG" ]; then
+    echo "FEHLER: Kennungsvorschau fehlt oder ist nicht ausfuehrbar."
+    exit 1
+fi
+
 echo "Hostname: $(hostname)"
 echo "Datum: $(date '+%Y-%m-%d %H:%M:%S')"
 echo
@@ -134,7 +143,9 @@ for SYSDEV in /sys/class/block/*; do
        [ -n "$MODELL" ] &&
        [ -n "$SERIE" ]; then
         echo "Status: Alle drei Angaben sind vorhanden."
-        echo "HINWEIS: Eine vollstaendige Kennung koennte als Vorschau erzeugt werden."
+        echo
+        echo "--- VOLLSTAENDIGE KENNUNGSVORSCHAU ---"
+        "$VORSCHAUWERKZEUG" "$HERSTELLER" "$MODELL" "$SERIE"
     else
         echo "Status: Keine vollstaendige Kennung erzeugen."
         echo "HINWEIS: Fehlende Angaben werden nicht aus USB-Adapterdaten ergaenzt."
