@@ -63,14 +63,22 @@ for SYSDEV in /sys/class/block/*; do
             head -n 1
     )"
 
+    # SMART-Ausgaben je Laufwerk einmal lesen und wiederverwenden.
+    SMART_STANDARD_INFO="$(smartctl -i "$DISK" 2>/dev/null || true)"
+    SMART_SAT_INFO=""
+
+    if [[ "$NAME" =~ ^(sd[a-z]+|hd[a-z]+)$ ]]; then
+        SMART_SAT_INFO="$(smartctl -i -d sat "$DISK" 2>/dev/null || true)"
+    fi
+
     SMART_SERIAL="$(
-        smartctl -i "$DISK" 2>/dev/null |
+        printf '%s\n' "$SMART_STANDARD_INFO" |
             sed -n 's/^[[:space:]]*Serial Number:[[:space:]]*//p' |
             head -n 1
     )"
 
     SAT_SERIAL="$(
-        smartctl -i -d sat "$DISK" 2>/dev/null |
+        printf '%s\n' "$SMART_SAT_INFO" |
             sed -n 's/^[[:space:]]*Serial Number:[[:space:]]*//p' |
             head -n 1
     )"
@@ -91,33 +99,28 @@ for SYSDEV in /sys/class/block/*; do
 
     # Modell, Seriennummer und gegebenenfalls Hersteller werden
     # ausschliesslich aus derselben SMART-Abfrage entnommen.
-    SMART_INFO="$(smartctl -i "$DISK" 2>/dev/null || true)"
+    SMART_INFO="$SMART_STANDARD_INFO"
     QUELLE="SMART-Standard"
 
-    if [[ "$NAME" =~ ^(sd[a-z]+|hd[a-z]+)$ ]]; then
-        SAT_INFO="$(smartctl -i -d sat "$DISK" 2>/dev/null || true)"
-
-        if printf '%s\\n' "$SAT_INFO" |
-           grep -Eq '^[[:space:]]*Serial Number:[[:space:]]*[^[:space:]]'; then
-            SMART_INFO="$SAT_INFO"
-            QUELLE="SMART-SAT"
-        fi
+    if [ -n "$SAT_SERIAL" ]; then
+        SMART_INFO="$SMART_SAT_INFO"
+        QUELLE="SMART-SAT"
     fi
 
     HERSTELLER="$(
-        printf '%s\\n' "$SMART_INFO" |
+        printf '%s\n' "$SMART_INFO" |
             sed -n -E 's/^[[:space:]]*Vendor:[[:space:]]*//p' |
             head -n 1
     )"
 
     MODELL="$(
-        printf '%s\\n' "$SMART_INFO" |
+        printf '%s\n' "$SMART_INFO" |
             sed -n -E 's/^[[:space:]]*(Device Model|Model Number):[[:space:]]*//p' |
             head -n 1
     )"
 
     SERIE="$(
-        printf '%s\\n' "$SMART_INFO" |
+        printf '%s\n' "$SMART_INFO" |
             sed -n 's/^[[:space:]]*Serial Number:[[:space:]]*//p' |
             head -n 1
     )"
@@ -166,14 +169,18 @@ for SYSDEV in /sys/class/block/*; do
     echo
     echo "--- SMART-STANDARDABFRAGE ---"
 
-    smartctl -i "$DISK" 2>/dev/null |
+    printf '%s\n' "$SMART_STANDARD_INFO" |
         grep -Ei '^(Device Model|Model Number|Model Family|Product|Vendor|Serial Number|LU WWN Device Id|Transport protocol):' || true
 
     echo
     echo "--- SMART-SAT-ABFRAGE ---"
 
-    smartctl -i -d sat "$DISK" 2>/dev/null |
-        grep -Ei '^(Device Model|Model Number|Model Family|Product|Vendor|Serial Number|LU WWN Device Id|Transport protocol):' || true
+    if [ -n "$SMART_SAT_INFO" ]; then
+        printf '%s\n' "$SMART_SAT_INFO" |
+            grep -Ei '^(Device Model|Model Number|Model Family|Product|Vendor|Serial Number|LU WWN Device Id|Transport protocol):' || true
+    else
+        echo "Keine SAT-Ausgabe verfuegbar."
+    fi
 
     echo
 done
