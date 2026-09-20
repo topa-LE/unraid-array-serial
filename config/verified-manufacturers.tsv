@@ -1,0 +1,9 @@
+# Gepruefte Herstellerzuordnungen fuer Unraid Array Serial.
+# Format: EXAKTES_SMART_MODELL<TAB>HERSTELLER<TAB>PRUEFQUELLE
+#
+# Nur nach konkreter Pruefung des Laufwerksmodells Eintraege hinzufuegen.
+# Keine Zuordnung anhand von USB-Adapterhersteller oder USB-Vendor-ID.
+# Keine Vermutungen anhand von Modellpraefixen.
+# Ein unbekanntes Modell bleibt ohne vollstaendige Herstellerkennung.
+#
+# Noch keine Modelle geprueft oder eingetragen.
