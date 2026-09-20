@@ -55,6 +55,38 @@ for SYSDEV in /sys/class/block/*; do
         grep -E '^(ID_BUS|ID_VENDOR|ID_MODEL|ID_SERIAL|ID_SERIAL_SHORT|ID_WWN|ID_PATH)=' || true
 
     echo
+    echo "--- SERIENNUMMERNVERGLEICH ---"
+
+    UDEV_SERIAL="$(
+        udevadm info --query=property --name="$DISK" 2>/dev/null |
+            sed -n 's/^ID_SERIAL_SHORT=//p' |
+            head -n 1
+    )"
+
+    SMART_SERIAL="$(
+        smartctl -i "$DISK" 2>/dev/null |
+            sed -n 's/^[[:space:]]*Serial Number:[[:space:]]*//p' |
+            head -n 1
+    )"
+
+    SAT_SERIAL="$(
+        smartctl -i -d sat "$DISK" 2>/dev/null |
+            sed -n 's/^[[:space:]]*Serial Number:[[:space:]]*//p' |
+            head -n 1
+    )"
+
+    echo "Udev-Seriennummer: ${UDEV_SERIAL:-nicht verfuegbar}"
+    echo "SMART-Seriennummer: ${SMART_SERIAL:-nicht verfuegbar}"
+    echo "SAT-Seriennummer: ${SAT_SERIAL:-nicht verfuegbar}"
+
+    if [ -n "$SAT_SERIAL" ] &&
+       [ -n "$UDEV_SERIAL" ] &&
+       [ "$SAT_SERIAL" != "$UDEV_SERIAL" ]; then
+        echo "HINWEIS: SAT- und Udev-Seriennummer unterscheiden sich."
+        echo "HINWEIS: Keine automatische Aenderung der Laufwerkskennung."
+    fi
+
+    echo
     echo "--- GERAETEPFAD UND USB-ADAPTER ---"
 
     PFAD="$(readlink -f "$SYSDEV/device" 2>/dev/null)" || PFAD=""
