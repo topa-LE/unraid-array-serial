@@ -1,0 +1,15 @@
+#!/bin/bash
+# Start the Management Utility
+
+# topa-LE Array Serial - START
+/bin/bash /boot/config/custom/array-serial/install-udev-rule.sh || {
+    echo "FEHLER: Array-Serial-Boot-Skript fehlgeschlagen."
+    echo "emhttp wird trotzdem gestartet; Array bitte nicht starten."
+}
+# topa-LE Array Serial - END
+
+/usr/local/sbin/emhttp
+
+# topa-LE Unraid Dark Theme - START
+bash /boot/config/custom-css/topa-LE/scripts/apply.sh
+# topa-LE Unraid Dark Theme - END
