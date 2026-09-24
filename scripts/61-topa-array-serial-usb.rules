@@ -1,0 +1,12 @@
+# topa-LE Unraid Array Serial
+# USB-Datentraeger: echte, per SMART ermittelte Kennung vor
+# der Erzeugung der persistenten by-id-Links bereitstellen.
+#
+# Nur ganze USB-SCSI-Datentraeger. Der Helfer liefert bei
+# fehlender echter ATA-Identitaet keine Ersatzkennung.
+#
+# ACHTUNG: Diese Regel ist noch NICHT zur Installation freigegeben.
+# Ihre Einbindung in die Unraid-Array-Erkennung muss vor dem
+# produktiven Einsatz separat bestaetigt werden.
+
+ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="sd[a-z]*", SUBSYSTEMS=="usb", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/serial-id.sh /dev/%k"
