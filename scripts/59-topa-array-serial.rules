@@ -1,0 +1,9 @@
+# topa-LE Unraid Array Serial
+# Echte SMART-Kennung vor der Unraid-Standardregel bereitstellen.
+# Nur ganze SATA-/USB-SCSI-Datentraeger, keine Partitionen.
+# Bei fehlender SMART-Identitaet bleibt die Standarderkennung aktiv.
+#
+# Noch nicht produktiv freigegeben: Unraid-WebUI-Zuordnung muss
+# vor einem Neustart mit geaenderten Kennungen geprueft werden.
+
+ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="sd*[!0-9]", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/serial-id.sh /dev/%k"

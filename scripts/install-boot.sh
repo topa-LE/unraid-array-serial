@@ -1,47 +1,63 @@
 #!/bin/bash
-# topa-LE Unraid Array Serial – Boot-Installation
-# Installiert nur zusaetzliche udev-Eigenschaften.
-# Bestehende Unraid-ID_SERIAL und Array-Zuordnungen bleiben unangetastet.
+# topa-LE Unraid Array Serial
+# Installiert die Kennungsregel und erkennt vorhandene Laufwerke neu.
+# Aendert keine Array-Zuordnungen.
 set -euo pipefail
 
 QUELLE="/boot/config/custom/array-serial"
-REGEL_QUELLE="$QUELLE/99-topa-array-serial.rules"
-REGEL_ZIEL="/etc/udev/rules.d/99-topa-array-serial.rules"
+REGEL_QUELLE="$QUELLE/59-topa-array-serial.rules"
+REGEL_ZIEL="/etc/udev/rules.d/59-topa-array-serial.rules"
 
-[ "$(id -u)" -eq 0 ] || {
-    echo "FEHLER: Root-Rechte erforderlich."
+if [ "$(id -u)" -ne 0 ]; then
+    echo "STOP: Root-Rechte erforderlich."
     exit 1
-}
+fi
 
 for DATEI in \
     "$QUELLE/serial-id.sh" \
     "$QUELLE/format-disk-id.sh" \
-    "$QUELLE/serial-id-udev.sh" \
-    "$REGEL_QUELLE"; do
-    [ -f "$DATEI" ] || {
-        echo "FEHLER: Datei fehlt: $DATEI"
+    "$REGEL_QUELLE"
+do
+    if [ ! -f "$DATEI" ]; then
+        echo "STOP: Datei fehlt: $DATEI"
         exit 1
-    }
+    fi
 done
 
 bash -n "$QUELLE/serial-id.sh"
 bash -n "$QUELLE/format-disk-id.sh"
-bash -n "$QUELLE/serial-id-udev.sh"
 
 if [ -e "$REGEL_ZIEL" ]; then
-    if cmp -s "$REGEL_QUELLE" "$REGEL_ZIEL"; then
-        echo "Udev-Regel ist bereits installiert."
-    else
-        echo "FEHLER: Am Ziel liegt eine abweichende Regel."
-        echo "Keine vorhandene Regel wird ueberschrieben."
+    if ! cmp -s "$REGEL_QUELLE" "$REGEL_ZIEL"; then
+        echo "STOP: Am Installationsziel liegt eine andere Regel."
         exit 1
     fi
+    echo "Kennungsregel ist bereits installiert."
 else
     install -m 0644 "$REGEL_QUELLE" "$REGEL_ZIEL"
-    echo "Zusaetzliche udev-Regel installiert."
+    echo "Kennungsregel installiert."
 fi
 
 udevadm control --reload
+
 echo "Udev-Regeln neu geladen."
-echo "Keine bestehenden Geraete erneut ausgeloest."
-echo "Keine ID_SERIAL- oder Array-Zuordnungen geaendert."
+echo "Array-Zuordnungen nicht geaendert."
+
+# Nach dem Laden der Regel die vorhandenen ganzen SATA-/USB-SCSI-
+# Laufwerke erneut erkennen. Partitionen bleiben ausgeschlossen.
+for SYSDEV in /sys/class/block/sd*; do
+    [ -e "$SYSDEV" ] || continue
+
+    NAME="${SYSDEV##*/}"
+    [[ "$NAME" =~ ^sd[a-z]+$ ]] || continue
+
+    if ! udevadm trigger --action=add \
+        --sysname-match="$NAME" \
+        --subsystem-match=block; then
+        echo "STOP: Neuerkennung fuer /dev/$NAME fehlgeschlagen."
+        exit 1
+    fi
+done
+
+udevadm settle
+echo "Geraetekennungen neu eingelesen."
