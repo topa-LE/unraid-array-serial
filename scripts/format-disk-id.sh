@@ -11,11 +11,15 @@ SERIENNUMMER="${2:-}"
 
 # Unraids bisheriges WDC-Praefix vereinheitlichen.
 if [[ "$MODELL" == "WDC WD"* ]]; then
-    MODELL="${MODELL#WDC }"
+    MODELL="${MODELL/WDC /WDC-}"
 fi
 
 # Leerzeichen und Unterstriche durch Bindestriche ersetzen.
 # Vorhandene Bindestriche und die echte Seriennummer bleiben erhalten.
+if [[ "$MODELL" == WD* && "$MODELL" != WDC-* ]]; then
+    MODELL="WDC-$MODELL"
+fi
+
 MODELL="${MODELL// /-}"
 MODELL="${MODELL//_/-}"
 

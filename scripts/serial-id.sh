@@ -67,7 +67,7 @@ fi
 # SMART liefert bei WD-Modellen haeufig "WDC WD...".
 # Nur dieses bekannte Herstellerpraefix entfernen.
 if [[ "$MODELL" == "WDC WD"* ]]; then
-    MODELL="${MODELL#WDC }"
+    MODELL="${MODELL/WDC /WDC-}"
 fi
 
 # Erst nach der Praefixbehandlung pruefen.
