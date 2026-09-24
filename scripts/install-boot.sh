@@ -1,6 +1,6 @@
 #!/bin/bash
 # topa-LE Unraid Array Serial
-# Installiert die Kennungsregel und erkennt vorhandene Laufwerke neu.
+# Installiert die Kennungsregel und erkennt geeignete Laufwerke gezielt neu.
 # Aendert keine Array-Zuordnungen.
 set -euo pipefail
 
@@ -41,23 +41,52 @@ fi
 udevadm control --reload
 
 echo "Udev-Regeln neu geladen."
-echo "Array-Zuordnungen nicht geaendert."
 
-# Nach dem Laden der Regel die vorhandenen ganzen SATA-/USB-SCSI-
-# Laufwerke erneut erkennen. Partitionen bleiben ausgeschlossen.
+# Das physische Laufwerk ermitteln, auf dem /boot eingehangen ist.
+# Wenn das nicht eindeutig gelingt, keine Neuerkennung ausfuehren.
+BOOT_QUELLE="$(findmnt -n -o SOURCE --target /boot)" || {
+    echo "STOP: Boot-Quelle nicht ermittelbar."
+    exit 1
+}
+
+BOOT_GERAET="$(lsblk -n -s -o NAME "$BOOT_QUELLE" | tail -n 1)" || {
+    echo "STOP: Boot-Laufwerk nicht ermittelbar."
+    exit 1
+}
+
+if [ -z "$BOOT_GERAET" ]; then
+    echo "STOP: Boot-Laufwerk ist leer."
+    exit 1
+fi
+
+echo "USB-Boot-Laufwerk wird ausgenommen: /dev/$BOOT_GERAET"
+
+# Nur Laufwerke erneut erkennen, fuer die das Kennungsskript
+# erfolgreich eine neue ID_SERIAL ermittelt. Das Boot-Laufwerk
+# bleibt unabhaengig von seiner SMART-Erkennung unangetastet.
 for SYSDEV in /sys/class/block/sd*; do
     [ -e "$SYSDEV" ] || continue
 
     NAME="${SYSDEV##*/}"
     [[ "$NAME" =~ ^sd[a-z]+$ ]] || continue
 
-    if ! udevadm trigger --action=add \
-        --sysname-match="$NAME" \
-        --subsystem-match=block; then
-        echo "STOP: Neuerkennung fuer /dev/$NAME fehlgeschlagen."
-        exit 1
+    if [ "$NAME" = "$BOOT_GERAET" ]; then
+        continue
     fi
+
+    if ! KENNUNG="$(bash "$QUELLE/serial-id.sh" "/dev/$NAME" 2>/dev/null)"; then
+        continue
+    fi
+
+    if ! grep -q "^ID_SERIAL=" <<< "$KENNUNG"; then
+        continue
+    fi
+
+    echo "Kennung fuer /dev/$NAME wird eingelesen."
+    udevadm trigger --action=add \
+        --sysname-match="$NAME" \
+        --subsystem-match=block
 done
 
 udevadm settle
-echo "Geraetekennungen neu eingelesen."
+echo "Gezielte Neuerkennung abgeschlossen."
