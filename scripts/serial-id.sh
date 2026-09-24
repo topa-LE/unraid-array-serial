@@ -32,36 +32,11 @@ while [ "$PFAD" != "/" ]; do
     [ -n "$PFAD" ] || PFAD="/"
 done
 
-# USB-Fallback nur fuer Geraete ohne auslesbare SMART-Identitaet.
-# Die Kennung stammt dann vom USB-Geraet, nicht zwingend vom Datentraeger.
-usb_fallback() {
-    [ "$USB" -eq 1 ] || return 1
-
-    local EIGENSCHAFTEN MODELL_USB SERIE_USB
-    EIGENSCHAFTEN="$(udevadm info --query=property --name="$DISK" 2>/dev/null)" ||
-        return 1
-
-    MODELL_USB="$(printf '%s\n' "$EIGENSCHAFTEN" |
-        sed -n 's/^ID_MODEL=//p' | head -n 1)"
-    SERIE_USB="$(printf '%s\n' "$EIGENSCHAFTEN" |
-        sed -n 's/^ID_SERIAL_SHORT=//p' | head -n 1)"
-
-    [ -n "$MODELL_USB" ] && [ -n "$SERIE_USB" ] || return 1
-    [[ "$MODELL_USB" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
-    [[ "$SERIE_USB" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
-    [[ ! "$SERIE_USB" =~ ^0+$ ]] || return 1
-
-    printf 'ID_SERIAL_SHORT=%s\n' "$SERIE_USB"
-    printf 'ID_SERIAL=USB-%s-%s\n' "$MODELL_USB" "$SERIE_USB"
-}
-
 JSON=""
 
 if [ "$USB" -eq 1 ]; then
-    JSON="$(smartctl -i -d sat -j "$DISK" 2>/dev/null)" || {
-        usb_fallback
-        exit $?
-    }
+    # Ohne auslesbare Laufwerksidentitaet keine USB-Adapterkennung verwenden.
+    JSON="$(smartctl -i -d sat -j "$DISK" 2>/dev/null)" || exit 1
 else
     JSON="$(smartctl -i -j "$DISK" 2>/dev/null)" || exit 1
 fi
@@ -84,24 +59,50 @@ MODELL="$(
 )" || exit 1
 
 # Keine Adapterbezeichnung oder erfundene Modellnummer einsetzen.
-# Leerzeichen werden nur fuer den technischen Namen durch _ ersetzt.
+# Modell und Seriennummer bleiben fuer die Kennungsbildung unveraendert.
 if [ -z "$MODELL" ]; then
     exit 1
 fi
 
-MODELL="${MODELL// /_}"
+# SMART liefert bei WD-Modellen haeufig "WDC WD...".
+# Nur dieses bekannte Herstellerpraefix entfernen.
+if [[ "$MODELL" == "WDC WD"* ]]; then
+    MODELL="${MODELL#WDC }"
+fi
 
-if [[ ! "$MODELL" =~ ^[A-Za-z0-9._-]+$ ]]; then
+# Erst nach der Praefixbehandlung pruefen.
+# Die Kodierung darunter bildet Sonderzeichen eindeutig als -HH ab.
+if [[ ! "$MODELL" =~ ^[A-Za-z0-9._\ -]+$ ]]; then
     exit 1
 fi
 
-# SMART liefert bei WD-Modellen haeufig "WDC WD...".
-# Nur das Herstellerpraefix entfernen; Modellcode vollstaendig behalten.
-if [[ "$MODELL" == WDC_WD* ]]; then
-    MODELL="${MODELL#WDC_}"
-fi
+# Umkehrbare Kodierung: Bindestrich=-2D, Unterstrich=-5F, Punkt=-2E.
+# -00- trennt Modell und Seriennummer eindeutig voneinander.
+# Die originale SMART-Seriennummer wird nicht umgeschrieben.
+kodieren() {
+    local WERT="$1"
+    local ZEICHEN HEX AUSGABE=""
+    local I
 
-KENNUNG="${MODELL}-${SERIENNUMMER}"
+    for ((I = 0; I < ${#WERT}; I++)); do
+        ZEICHEN="${WERT:I:1}"
+
+        case "$ZEICHEN" in
+            [A-Za-z0-9])
+                AUSGABE+="$ZEICHEN"
+                ;;
+            *)
+                printf -v HEX '%02X' "'$ZEICHEN"
+                AUSGABE+="-$HEX"
+                ;;
+        esac
+    done
+
+    printf '%s' "$AUSGABE"
+}
+
+export LC_ALL=C
+KENNUNG="$(kodieren "$MODELL")-00-$(kodieren "$SERIENNUMMER")"
 
 printf 'ID_SERIAL_SHORT=%s\n' "$SERIENNUMMER"
 printf 'ID_SERIAL=%s\n' "$KENNUNG"
