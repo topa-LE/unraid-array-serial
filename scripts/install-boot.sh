@@ -15,6 +15,7 @@ REGEL_ZIEL="/etc/udev/rules.d/99-topa-array-serial.rules"
 
 for DATEI in \
     "$QUELLE/serial-id.sh" \
+    "$QUELLE/format-disk-id.sh" \
     "$QUELLE/serial-id-udev.sh" \
     "$REGEL_QUELLE"; do
     [ -f "$DATEI" ] || {
@@ -24,6 +25,7 @@ for DATEI in \
 done
 
 bash -n "$QUELLE/serial-id.sh"
+bash -n "$QUELLE/format-disk-id.sh"
 bash -n "$QUELLE/serial-id-udev.sh"
 
 if [ -e "$REGEL_ZIEL" ]; then
