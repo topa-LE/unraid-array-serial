@@ -25,6 +25,7 @@ fi
 
 for DATEI in \
     "$GENERATOR" \
+    "$QUELLE/resolve-cached-id.sh" \
     "$QUELLE/format-disk-id.sh" \
     "$QUELLE/detect-transport.sh" \
     "$REGEL_QUELLE"
@@ -36,6 +37,7 @@ do
 done
 
 bash -n "$GENERATOR"
+bash -n "$QUELLE/resolve-cached-id.sh"
 bash -n "$QUELLE/format-disk-id.sh"
 bash -n "$QUELLE/detect-transport.sh"
 

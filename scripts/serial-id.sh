@@ -37,6 +37,21 @@ TRANSPORT_ERKENNUNG="$VERZEICHNIS/detect-transport.sh"
 [ -r "$FORMATIERER" ] || exit 1
 [ -r "$TRANSPORT_ERKENNUNG" ] || exit 1
 
+CACHE_RESOLVER="$VERZEICHNIS/resolve-cached-id.sh"
+IDENTITY_CACHE="/boot/config/custom/array-serial/identity-cache.tsv"
+
+# Schneller persistenter Pfad fuer Laufwerke, deren Bridge die echte
+# Hardware-Identitaet zur Bootzeit nicht verlaesslich bereitstellt.
+#
+# Nur ein eindeutiger, sicher passender Cache-Eintrag wird akzeptiert.
+# Ohne Treffer geht die normale Hardware-Erkennung unveraendert weiter.
+if [ -r "$CACHE_RESOLVER" ] && [ -r "$IDENTITY_CACHE" ]; then
+    if CACHE_ID="$(bash "$CACHE_RESOLVER" "$DISK" "$IDENTITY_CACHE" 2>/dev/null)"; then
+        printf '%s\n' "$CACHE_ID"
+        exit 0
+    fi
+fi
+
 TRANSPORT="$(bash "$TRANSPORT_ERKENNUNG" "$DISK")" || exit 1
 
 JSON=""
