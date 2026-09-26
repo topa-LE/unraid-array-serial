@@ -106,7 +106,7 @@ echo "===== CUSTOM UDEV-REGELN ====="
 
 for FILE in \
     /etc/udev/rules.d/59-array-serial.rules \
-    /etc/udev/rules.d/59-topa-array-serial.rules
+    /etc/udev/rules.d/59-array-serial.rules
 do
     if [ -f "$FILE" ]; then
         echo "--- $FILE ---"
