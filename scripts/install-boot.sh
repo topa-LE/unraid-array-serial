@@ -5,8 +5,8 @@
 set -euo pipefail
 
 QUELLE="/boot/config/custom/array-serial"
-REGEL_QUELLE="$QUELLE/59-topa-array-serial.rules"
-REGEL_ZIEL="/etc/udev/rules.d/59-topa-array-serial.rules"
+REGEL_QUELLE="$QUELLE/59-array-serial.rules"
+REGEL_ZIEL="/etc/udev/rules.d/59-array-serial.rules"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "STOP: Root-Rechte erforderlich."
@@ -16,6 +16,7 @@ fi
 for DATEI in \
     "$QUELLE/serial-id.sh" \
     "$QUELLE/format-disk-id.sh" \
+    "$QUELLE/detect-transport.sh" \
     "$REGEL_QUELLE"
 do
     if [ ! -f "$DATEI" ]; then
@@ -26,6 +27,7 @@ done
 
 bash -n "$QUELLE/serial-id.sh"
 bash -n "$QUELLE/format-disk-id.sh"
+bash -n "$QUELLE/detect-transport.sh"
 
 if [ -e "$REGEL_ZIEL" ]; then
     if ! cmp -s "$REGEL_QUELLE" "$REGEL_ZIEL"; then
@@ -49,7 +51,7 @@ BOOT_QUELLE="$(findmnt -n -o SOURCE --target /boot)" || {
     exit 1
 }
 
-BOOT_GERAET="$(lsblk -n -s -o NAME "$BOOT_QUELLE" | tail -n 1)" || {
+BOOT_GERAET="$(lsblk -r -n -s -o NAME "$BOOT_QUELLE" | tail -n 1)" || {
     echo "STOP: Boot-Laufwerk nicht ermittelbar."
     exit 1
 }

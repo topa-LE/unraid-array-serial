@@ -1,8 +1,21 @@
 #!/bin/bash
 
-# Unraid Array Serial – Hardware-Identifikation
-# Entwicklungsfassung: keine Aenderung an udev oder Array-Zuordnungen.
-# Ausgabe fuer udev nur bei erfolgreich ermittelter Hardware-Seriennummer.
+# topa-LE Unraid Array Serial
+#
+# Ermittelt die echte Hardware-Identitaet eines Laufwerks.
+#
+# Hardware-Identitaet:
+#   SMART-Modell + echte SMART-Seriennummer
+#
+# Sichtbare Kennung:
+#   Hardware-ID
+#   plus Transporthinweis bei physischem USB
+#
+# Beispiele:
+#   WDC-WD40EFRX-68N32N0-WD-WCC7K5ZJKT08
+#   WDC-WD40EFRX-68N32N0-WD-WCC7K5ZJKT08-USB3
+#
+# ID_SERIAL_SHORT bleibt immer die echte Hardware-Seriennummer.
 
 set -euo pipefail
 
@@ -13,74 +26,66 @@ if [[ ! "$DISK" =~ ^/dev/(sd[a-z]+|hd[a-z]+|nvme[0-9]+n[0-9]+|vd[a-z]+)$ ]] ||
     exit 1
 fi
 
-command -v smartctl >/dev/null 2>&1 || exit 1
-command -v jq >/dev/null 2>&1 || exit 1
-
-NAME="${DISK##*/}"
-
-# Bei USB-SATA-Geraeten SAT bevorzugen: Die normale USB-Identifikation
-# kann die Seriennummer des Adapters statt der Festplatte liefern.
-USB=0
-PFAD="$(readlink -f "/sys/class/block/$NAME/device" 2>/dev/null)" || exit 1
-
-while [ "$PFAD" != "/" ]; do
-    if [ -r "$PFAD/idVendor" ] && [ -r "$PFAD/idProduct" ]; then
-        USB=1
-        break
-    fi
-    PFAD="${PFAD%/*}"
-    [ -n "$PFAD" ] || PFAD="/"
+for PROGRAMM in smartctl jq; do
+    command -v "$PROGRAMM" >/dev/null 2>&1 || exit 1
 done
+
+VERZEICHNIS="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+FORMATIERER="$VERZEICHNIS/format-disk-id.sh"
+TRANSPORT_ERKENNUNG="$VERZEICHNIS/detect-transport.sh"
+
+[ -r "$FORMATIERER" ] || exit 1
+[ -r "$TRANSPORT_ERKENNUNG" ] || exit 1
+
+TRANSPORT="$(bash "$TRANSPORT_ERKENNUNG" "$DISK")" || exit 1
 
 JSON=""
 
-if [ "$USB" -eq 1 ]; then
-    # Ohne auslesbare Laufwerksidentitaet keine USB-Adapterkennung verwenden.
-    JSON="$(smartctl -i -d sat -j "$DISK" 2>/dev/null)" || exit 1
-else
-    JSON="$(smartctl -i -j "$DISK" 2>/dev/null)" || exit 1
-fi
+case "$TRANSPORT" in
+    USB1|USB2|USB3|USB)
+        # Bei USB-SATA nur die echte Laufwerksidentitaet hinter der Bridge
+        # akzeptieren. Wenn SAT keine eindeutige Identitaet liefert,
+        # wird keine Adapter-/Bridge-Kennung als Ersatz erfunden.
+        JSON="$(smartctl -i -d sat -j "$DISK" 2>/dev/null)" || exit 1
+        ;;
+    *)
+        JSON="$(smartctl -i -j "$DISK" 2>/dev/null)" || exit 1
+        ;;
+esac
 
 SERIENNUMMER="$(
     printf '%s\n' "$JSON" |
         jq -r '.serial_number // empty' 2>/dev/null
 )" || exit 1
 
-# Keine leeren Werte, Platzhalter oder fuer udev ungeeigneten Zeichen.
-if [[ ! "$SERIENNUMMER" =~ ^[A-Za-z0-9-]+$ ]] ||
-   [[ "$SERIENNUMMER" =~ ^0+$ ]]; then
-    exit 1
-fi
-
-# Modell und echte Hardware-Seriennummer aus derselben SMART-Abfrage.
 MODELL="$(
     printf '%s\n' "$JSON" |
         jq -r '.model_name // empty' 2>/dev/null
 )" || exit 1
 
-# Keine Adapterbezeichnung oder erfundene Modellnummer einsetzen.
-# Modell und Seriennummer bleiben fuer die Kennungsbildung unveraendert.
-if [ -z "$MODELL" ]; then
+if [[ ! "$SERIENNUMMER" =~ ^[A-Za-z0-9-]+$ ]] ||
+   [[ "$SERIENNUMMER" =~ ^0+$ ]]; then
     exit 1
 fi
 
-# SMART liefert bei WD-Modellen haeufig "WDC WD...".
-# Nur dieses bekannte Herstellerpraefix entfernen.
-if [[ "$MODELL" == "WDC WD"* ]]; then
-    MODELL="${MODELL/WDC /WDC-}"
-fi
+[ -n "$MODELL" ] || exit 1
 
-# Erst nach der Praefixbehandlung pruefen.
-# Die Kodierung darunter bildet Sonderzeichen eindeutig als -HH ab.
 if [[ ! "$MODELL" =~ ^[A-Za-z0-9._\ -]+$ ]]; then
     exit 1
 fi
 
-# Lesbare Kennung aus Modell und echter SMART-Seriennummer.
-# Vorhandene Bindestriche bleiben erhalten; Leerzeichen und
-# Unterstriche im Modell werden durch Bindestriche ersetzt.
-# ID_SERIAL_SHORT enthaelt die unveraenderte SMART-Seriennummer.
-VERZEICHNIS="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-KENNUNG="$(bash "$VERZEICHNIS/format-disk-id.sh" "$MODELL" "$SERIENNUMMER")" || exit 1
+HARDWARE_ID="$(
+    bash "$FORMATIERER" "$MODELL" "$SERIENNUMMER"
+)" || exit 1
+
+case "$TRANSPORT" in
+    USB1|USB2|USB3|USB)
+        KENNUNG="${HARDWARE_ID}-${TRANSPORT}"
+        ;;
+    *)
+        KENNUNG="$HARDWARE_ID"
+        ;;
+esac
+
 printf 'ID_SERIAL_SHORT=%s\n' "$SERIENNUMMER"
 printf 'ID_SERIAL=%s\n' "$KENNUNG"

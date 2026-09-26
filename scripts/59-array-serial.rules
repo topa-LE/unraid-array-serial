@@ -1,0 +1,28 @@
+# topa-LE Unraid Array Serial
+#
+# Einheitliche Laufwerkskennung fuer Unraid.
+#
+# Unterstützte Geräteklassen:
+# - direkte SATA/ATA-Laufwerke
+# - SATA/ATA-Laufwerke hinter USB-Bridges
+# - NVMe-Namespace-Laufwerke
+#
+# Keine festen Gerätenamen und keine feste Laufwerksanzahl.
+#
+# sdX:
+# Zuerst versuchen, den vollständigen ATA-Metadatensatz zu laden.
+# USB-SATA-Bridges dürfen dabei ebenfalls ATA sprechen.
+# Danach erzeugt serial-id.sh nur dann eine eigene Kennung,
+# wenn eine sichere Hardware-Identität ermittelt werden kann.
+#
+# NVMe:
+# Keine ATA-Erkennung verwenden.
+# serial-id.sh liest die native NVMe-Hardwareidentität und verwendet
+# denselben Formatierer wie die übrigen Laufwerksklassen.
+
+# Alle vollständigen sdX-Blockgeräte.
+ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="sd*[!0-9]", IMPORT{program}="/lib/udev/ata_id --export $devnode"
+ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="sd*[!0-9]", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/serial-id.sh /dev/%k"
+
+# Alle vollständigen NVMe-Namespace-Blockgeräte.
+ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="nvme[0-9]*n[0-9]*", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/serial-id.sh /dev/%k"

@@ -1,5 +1,0 @@
-# topa-LE Unraid Array Serial
-# Zuerst Standard-ATA-Erkennung, danach nur ID_SERIAL anpassen.
-
-ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="sd*[!0-9]", SUBSYSTEMS=="scsi", ATTRS{vendor}=="ATA", IMPORT{program}="ata_id --export $devnode"
-ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="sd*[!0-9]", ENV{ID_BUS}=="ata", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/serial-id.sh /dev/%k"
