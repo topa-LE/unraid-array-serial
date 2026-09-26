@@ -24,7 +24,7 @@ if grep -Fxq "$AUFRUF" "$GO"; then
     exit 0
 fi
 
-cp -p "$GO" "$GO.topa-array-serial.bak"
+cp -p "$GO" "$GO.array-serial.bak"
 
 DATEI="$(mktemp)"
 
@@ -47,4 +47,4 @@ cat "$DATEI" > "$GO"
 rm -f "$DATEI"
 
 echo "Boot-Aufruf vor emhttp eingetragen."
-echo "Original gesichert unter: $GO.topa-array-serial.bak"
+echo "Original gesichert unter: $GO.array-serial.bak"
