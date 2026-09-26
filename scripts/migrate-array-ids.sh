@@ -174,6 +174,7 @@ declare -A HW_SERIAL=()
 declare -A PLAN_ALTE_ID=()
 declare -A PLAN_SERIAL=()
 declare -A PLAN_NEUE_ID=()
+declare -A PLAN_IDENTITY_SOURCE=()
 declare -A PLAN_DEVICE=()
 
 declare -A SLOT_IDX_AKTUELL=()
@@ -263,8 +264,8 @@ done < <(
 )
 
 plan_gegen_hardware_aufloesen() {
-    local SLOT SERIAL NEU
-    local SYS NAME AUSGABE IST_SERIAL IST_NEU
+    local SLOT SERIAL NEU QUELLE
+    local SYS NAME AUSGABE IST_SERIAL IST_NEU IST_QUELLE
     local ANZAHL GEFUNDEN
 
     declare -A GESEHENE_PLAN_DEVICE=()
@@ -272,6 +273,7 @@ plan_gegen_hardware_aufloesen() {
     for SLOT in "${SLOTS[@]}"; do
         SERIAL="${PLAN_SERIAL[$SLOT]}"
         NEU="${PLAN_NEUE_ID[$SLOT]}"
+        QUELLE="${PLAN_IDENTITY_SOURCE[$SLOT]}"
         ANZAHL=0
         GEFUNDEN=""
 
@@ -324,8 +326,15 @@ plan_gegen_hardware_aufloesen() {
                     head -n 1
             )"
 
+            IST_QUELLE="$(
+                printf '%s\n' "$AUSGABE" |
+                    sed -n 's/^IDENTITY_SOURCE=//p' |
+                    head -n 1
+            )"
+
             if [ "$IST_SERIAL" = "$SERIAL" ] &&
-               [ "$IST_NEU" = "$NEU" ]; then
+               [ "$IST_NEU" = "$NEU" ] &&
+               [ "$IST_QUELLE" = "$QUELLE" ]; then
                 ANZAHL=$((ANZAHL + 1))
                 GEFUNDEN="$NAME"
             fi
@@ -351,7 +360,7 @@ plan_gegen_hardware_aufloesen() {
 }
 
 plan_laden() {
-    local SLOT SLOT_IDX ALT SERIAL NEU
+    local SLOT SLOT_IDX ALT SERIAL NEU QUELLE
     local ZEILEN=0
 
     [ -r "$MIGRATIONSPLAN" ] || {
@@ -359,7 +368,7 @@ plan_laden() {
         exit 1
     }
 
-    while IFS=$'\t' read -r SLOT SLOT_IDX ALT SERIAL NEU EXTRA; do
+    while IFS=$'\t' read -r SLOT SLOT_IDX ALT SERIAL NEU QUELLE EXTRA; do
         [ -n "$SLOT" ] || continue
 
         [ -z "${EXTRA:-}" ] || {
@@ -396,6 +405,15 @@ plan_laden() {
             exit 1
         }
 
+        case "$QUELLE" in
+            ATA|NVME|USB_SAT|CACHE)
+                ;;
+            *)
+                echo "STOP: Ungueltige Identitaetsquelle im Migrationsplan fuer $SLOT: ${QUELLE:-<leer>}"
+                exit 1
+                ;;
+        esac
+
         if [ -n "${PLAN_ALTE_ID[$SLOT]+x}" ]; then
             echo "STOP: Slot ist im Migrationsplan mehrfach vorhanden: $SLOT"
             exit 1
@@ -408,6 +426,7 @@ plan_laden() {
         PLAN_ALTE_ID["$SLOT"]="$ALT"
         PLAN_SERIAL["$SLOT"]="$SERIAL"
         PLAN_NEUE_ID["$SLOT"]="$NEU"
+        PLAN_IDENTITY_SOURCE["$SLOT"]="$QUELLE"
         HW_SERIAL["$SLOT"]="$SERIAL"
         NEUE_ID["$SLOT"]="$NEU"
 
@@ -425,7 +444,7 @@ plan_laden() {
 plan_erzeugen() {
     local TMP
     local SLOT SLOT_IDX SLOT_DEVICE SLOT_ID SLOT_IDSB SLOT_STATUS
-    local DEV GENERATOR SERIAL NEU
+    local DEV GENERATOR SERIAL NEU QUELLE
     local UDEV_AKTUELL
     local ANZAHL=0
 
@@ -570,6 +589,12 @@ plan_erzeugen() {
                 head -n 1
         )"
 
+        QUELLE="$(
+            printf '%s\n' "$GENERATOR" |
+                sed -n 's/^IDENTITY_SOURCE=//p' |
+                head -n 1
+        )"
+
         [ -n "$SERIAL" ] || {
             rm -f "$TMP"
             echo "STOP: Echte Hardware-Seriennummer fehlt fuer $SLOT."
@@ -581,6 +606,16 @@ plan_erzeugen() {
             echo "STOP: Neue ID fehlt fuer $SLOT."
             exit 1
         }
+
+        case "$QUELLE" in
+            ATA|NVME|USB_SAT|CACHE)
+                ;;
+            *)
+                rm -f "$TMP"
+                echo "STOP: Keine gueltige Identitaetsquelle fuer $SLOT: ${QUELLE:-<leer>}"
+                exit 1
+                ;;
+        esac
 
         if [ -n "${GESEHENE_IDX[$SLOT_IDX]+x}" ] ||
            [ -n "${GESEHENE_DEVICE[$SLOT_DEVICE]+x}" ] ||
@@ -598,8 +633,8 @@ plan_erzeugen() {
         GESEHENE_SERIAL["$SERIAL"]="$SLOT"
         GESEHENE_NEUE_ID["$NEU"]="$SLOT"
 
-        printf '%s\t%s\t%s\t%s\t%s\n' \
-            "$SLOT" "$SLOT_IDX" "$SLOT_IDSB" "$SERIAL" "$NEU" >> "$TMP"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$SLOT" "$SLOT_IDX" "$SLOT_IDSB" "$SERIAL" "$NEU" "$QUELLE" >> "$TMP"
 
         ANZAHL=$((ANZAHL + 1))
     done
@@ -673,6 +708,7 @@ for SLOT in "${SLOTS[@]}"; do
     echo "Alte ID:    ${PLAN_ALTE_ID[$SLOT]}"
     echo "HW-Serial:  ${PLAN_SERIAL[$SLOT]}"
     echo "Neue ID:    ${PLAN_NEUE_ID[$SLOT]}"
+    echo "ID-Quelle:  ${PLAN_IDENTITY_SOURCE[$SLOT]}"
 
     [ "$SLOT_IDX_AKTUELL_WERT" = "$SLOT_IDX_AUS_PLAN" ] || {
         echo "STOP: Aktuelle idx stimmt nicht mit dem Migrationsplan ueberein."
@@ -846,24 +882,47 @@ for SLOT in "${SLOTS[@]}"; do
     echo
     echo "Udev-Neuerkennung fuer $DEV ..."
 
-    udevadm trigger \
+    set +e
+    timeout 5 udevadm trigger \
         --action=add \
         --sysname-match="$NAME" \
         --subsystem-match=block
+    TRIGGER_RC=$?
+    set -e
 
-    udevadm settle
+    if [ "$TRIGGER_RC" -ne 0 ]; then
+        echo "STOP: Udev-Trigger fuer $DEV fehlgeschlagen oder Timeout."
+        echo "Array NICHT starten."
+        exit 1
+    fi
 
-    UDEV_NEU="$(
-        udevadm info --query=property --name="$DEV" 2>/dev/null |
-            sed -n 's/^ID_SERIAL=//p' |
-            head -n 1
-    )"
+    UDEV_NEU=""
+    UDEV_SHORT=""
 
-    UDEV_SHORT="$(
-        udevadm info --query=property --name="$DEV" 2>/dev/null |
-            sed -n 's/^ID_SERIAL_SHORT=//p' |
-            head -n 1
-    )"
+    for VERSUCH in 1 2 3 4 5; do
+        UDEV_AUSGABE="$(
+            udevadm info --query=property --name="$DEV" 2>/dev/null || true
+        )"
+
+        UDEV_NEU="$(
+            printf '%s\n' "$UDEV_AUSGABE" |
+                sed -n 's/^ID_SERIAL=//p' |
+                head -n 1
+        )"
+
+        UDEV_SHORT="$(
+            printf '%s\n' "$UDEV_AUSGABE" |
+                sed -n 's/^ID_SERIAL_SHORT=//p' |
+                head -n 1
+        )"
+
+        if [ "$UDEV_NEU" = "$NEU" ] &&
+           [ "$UDEV_SHORT" = "${PLAN_SERIAL[$SLOT]}" ]; then
+            break
+        fi
+
+        sleep 1
+    done
 
     echo "Udev-ID:    ${UDEV_NEU:-<leer>}"
     echo "HW-Serial:  ${UDEV_SHORT:-<leer>}"

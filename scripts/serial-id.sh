@@ -47,6 +47,7 @@ IDENTITY_CACHE="/boot/config/custom/array-serial/identity-cache.tsv"
 # Ohne Treffer geht die normale Hardware-Erkennung unveraendert weiter.
 if [ -r "$CACHE_RESOLVER" ] && [ -r "$IDENTITY_CACHE" ]; then
     if CACHE_ID="$(bash "$CACHE_RESOLVER" "$DISK" "$IDENTITY_CACHE" 2>/dev/null)"; then
+        printf 'IDENTITY_SOURCE=CACHE\n'
         printf '%s\n' "$CACHE_ID"
         exit 0
     fi
@@ -95,12 +96,19 @@ HARDWARE_ID="$(
 
 case "$TRANSPORT" in
     USB1|USB2|USB3|USB)
+        IDENTITY_SOURCE="USB_SAT"
         KENNUNG="${HARDWARE_ID}-${TRANSPORT}"
         ;;
+    NVME)
+        IDENTITY_SOURCE="NVME"
+        KENNUNG="$HARDWARE_ID"
+        ;;
     *)
+        IDENTITY_SOURCE="ATA"
         KENNUNG="$HARDWARE_ID"
         ;;
 esac
 
+printf 'IDENTITY_SOURCE=%s\n' "$IDENTITY_SOURCE"
 printf 'ID_SERIAL_SHORT=%s\n' "$SERIENNUMMER"
 printf 'ID_SERIAL=%s\n' "$KENNUNG"
