@@ -35,13 +35,13 @@ FORMATIERER="$VERZEICHNIS/format-disk-id.sh"
 TRANSPORT_ERKENNUNG="$VERZEICHNIS/detect-transport.sh"
 DISKS_INI="/var/local/emhttp/disks.ini"
 
-[ -x "$FORMATIERER" ] || {
-    echo "STOP: format-disk-id.sh fehlt oder ist nicht ausfuehrbar."
+[ -f "$FORMATIERER" ] || {
+    echo "STOP: format-disk-id.sh fehlt."
     exit 1
 }
 
-[ -x "$TRANSPORT_ERKENNUNG" ] || {
-    echo "STOP: detect-transport.sh fehlt oder ist nicht ausfuehrbar."
+[ -f "$TRANSPORT_ERKENNUNG" ] || {
+    echo "STOP: detect-transport.sh fehlt."
     exit 1
 }
 
