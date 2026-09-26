@@ -263,6 +263,54 @@ done < <(
     ' "$DISKS_INI"
 )
 
+
+# Fehlende Array-Slots nach einer Kennungsumschaltung aus dem von
+# Unraid weiterhin gehaltenen Superblock-Zustand ergaenzen.
+#
+# disks.ini bleibt die primaere Quelle. /proc/mdstat wird nur fuer
+# belegte Slots verwendet, deren gespeicherte diskId dort noch
+# vorhanden ist. Geraetenamen werden daraus NICHT uebernommen.
+if [ -r /proc/mdstat ]; then
+    while IFS='|' read -r SLOT SLOT_IDX GESPEICHERTE_ID; do
+        [ -n "$SLOT" ] || continue
+        [ -n "$GESPEICHERTE_ID" ] || continue
+
+        if [ -z "${SLOT_IDX_AKTUELL[$SLOT]+x}" ]; then
+            SLOT_IDX_AKTUELL["$SLOT"]="$SLOT_IDX"
+            SLOT_DEVICE_AKTUELL["$SLOT"]=""
+            SLOT_ID_AKTUELL["$SLOT"]=""
+            SLOT_IDSB_AKTUELL["$SLOT"]="$GESPEICHERTE_ID"
+            SLOT_STATUS_AKTUELL["$SLOT"]="RECOVERY"
+        elif [ -z "${SLOT_DEVICE_AKTUELL[$SLOT]}" ]; then
+            SLOT_IDX_AKTUELL["$SLOT"]="$SLOT_IDX"
+            SLOT_IDSB_AKTUELL["$SLOT"]="$GESPEICHERTE_ID"
+            SLOT_STATUS_AKTUELL["$SLOT"]="RECOVERY"
+        fi
+    done < <(
+        awk -F= '
+            /^diskId\.[0-9]+=/ {
+                key=$1
+                id=$2
+                sub(/^diskId\./, "", key)
+
+                if (id == "")
+                    next
+
+                idx=key + 0
+
+                if (idx == 0)
+                    slot="parity"
+                else if (idx == 29)
+                    slot="parity2"
+                else
+                    slot="disk" idx
+
+                print slot "|" idx "|" id
+            }
+        ' /proc/mdstat
+    )
+fi
+
 plan_gegen_hardware_aufloesen() {
     local SLOT SERIAL NEU QUELLE
     local SYS NAME AUSGABE IST_SERIAL IST_NEU IST_QUELLE
@@ -441,10 +489,96 @@ plan_laden() {
     plan_gegen_hardware_aufloesen
 }
 
+recovery_geraet_ermitteln() {
+    local SLOT="$1"
+    local ALTE_ID="$2"
+    local SYS NAME AUSGABE SERIAL NEU QUELLE
+    local TREFFER=0
+    local GEFUNDEN=""
+
+    RECOVERY_SERIAL=""
+    RECOVERY_NEUE_ID=""
+    RECOVERY_QUELLE=""
+    RECOVERY_DEVICE=""
+
+    for SYS in /sys/class/block/sd* /sys/class/block/nvme*n*; do
+        [ -e "$SYS" ] || continue
+
+        NAME="$(basename "$SYS")"
+
+        [[ "$NAME" =~ ^sd[a-z]+$|^nvme[0-9]+n[0-9]+$ ]] || continue
+
+        if [ -n "$BOOT_DISK" ] && [ "$NAME" = "$BOOT_DISK" ]; then
+            continue
+        fi
+
+        set +e
+        AUSGABE="$(
+            timeout "$GERAETE_TIMEOUT" \
+                bash "$SERIAL_ID" "/dev/$NAME" 2>/dev/null
+        )"
+        RC=$?
+        set -e
+
+        [ "$RC" -eq 0 ] || continue
+
+        SERIAL="$(
+            printf '%s\n' "$AUSGABE" |
+                sed -n 's/^ID_SERIAL_SHORT=//p' |
+                head -n 1
+        )"
+
+        NEU="$(
+            printf '%s\n' "$AUSGABE" |
+                sed -n 's/^ID_SERIAL=//p' |
+                head -n 1
+        )"
+
+        QUELLE="$(
+            printf '%s\n' "$AUSGABE" |
+                sed -n 's/^IDENTITY_SOURCE=//p' |
+                head -n 1
+        )"
+
+        [ -n "$SERIAL" ] || continue
+        [ -n "$NEU" ] || continue
+
+        case "$QUELLE" in
+            ATA|NVME|USB_SAT|CACHE)
+                ;;
+            *)
+                continue
+                ;;
+        esac
+
+        case "$ALTE_ID" in
+            "$SERIAL"|*_"$SERIAL"|*-"$SERIAL")
+                TREFFER=$((TREFFER + 1))
+                GEFUNDEN="$NAME"
+                RECOVERY_SERIAL="$SERIAL"
+                RECOVERY_NEUE_ID="$NEU"
+                RECOVERY_QUELLE="$QUELLE"
+                ;;
+        esac
+    done
+
+    if [ "$TREFFER" -ne 1 ]; then
+        echo "STOP: Gespeicherte ID fuer $SLOT ist nicht eindeutig aufloesbar." >&2
+        echo "Alte ID: $ALTE_ID" >&2
+        echo "Treffer: $TREFFER" >&2
+        return 1
+    fi
+
+    RECOVERY_DEVICE="$GEFUNDEN"
+}
+
 plan_erzeugen() {
     local TMP
     local SLOT SLOT_IDX SLOT_DEVICE SLOT_ID SLOT_IDSB SLOT_STATUS
     local DEV GENERATOR SERIAL NEU QUELLE
+    local RECOVERY_SERIAL_ERWARTET=""
+    local RECOVERY_NEU_ERWARTET=""
+    local RECOVERY_QUELLE_ERWARTET=""
     local UDEV_AKTUELL
     local ANZAHL=0
 
@@ -473,19 +607,41 @@ plan_erzeugen() {
         SLOT_IDSB="${SLOT_IDSB_AKTUELL[$SLOT]}"
         SLOT_STATUS="${SLOT_STATUS_AKTUELL[$SLOT]}"
 
+        RECOVERY_SERIAL_ERWARTET=""
+        RECOVERY_NEU_ERWARTET=""
+        RECOVERY_QUELLE_ERWARTET=""
+
         # Unbelegte Parity-Slots besitzen weder device noch idSb.
         if [ -z "$SLOT_DEVICE" ] && [ -z "$SLOT_IDSB" ]; then
             continue
         fi
 
-        [ -n "$SLOT_DEVICE" ] || {
-            rm -f "$TMP"
-            echo "STOP: $SLOT besitzt keine aktuelle Geraetezuordnung."
-            echo "      Ein neuer Plan darf nur vor der Udev-Umschaltung erzeugt werden."
-            exit 1
-        }
+        if [ -z "$SLOT_DEVICE" ]; then
+            if [ "$SLOT_STATUS" != "RECOVERY" ] || [ -z "$SLOT_IDSB" ]; then
+                rm -f "$TMP"
+                echo "STOP: $SLOT besitzt keine sicher wiederherstellbare Geraetezuordnung."
+                exit 1
+            fi
 
-        [[ "$SLOT_DEVICE" =~ ^sd[a-z]+$ ]] || {
+            echo "Recovery: $SLOT aus gespeicherter ID $SLOT_IDSB"
+
+            if ! recovery_geraet_ermitteln "$SLOT" "$SLOT_IDSB"; then
+                rm -f "$TMP"
+                exit 1
+            fi
+
+            SLOT_DEVICE="$RECOVERY_DEVICE"
+            SLOT_ID="$SLOT_IDSB"
+            SERIAL="$RECOVERY_SERIAL"
+            NEU="$RECOVERY_NEUE_ID"
+            QUELLE="$RECOVERY_QUELLE"
+
+            RECOVERY_SERIAL_ERWARTET="$SERIAL"
+            RECOVERY_NEU_ERWARTET="$NEU"
+            RECOVERY_QUELLE_ERWARTET="$QUELLE"
+        fi
+
+        [[ "$SLOT_DEVICE" =~ ^sd[a-z]+$|^nvme[0-9]+n[0-9]+$ ]] || {
             rm -f "$TMP"
             echo "STOP: $SLOT verwendet ein nicht unterstuetztes Geraet: $SLOT_DEVICE"
             exit 1
@@ -538,14 +694,26 @@ plan_erzeugen() {
                 head -n 1
         )"
 
-        [ "$UDEV_AKTUELL" = "$SLOT_IDSB" ] || {
-            rm -f "$TMP"
-            echo "STOP: Udev-ID stimmt vor Planerzeugung nicht mit idSb ueberein."
-            echo "Slot: $SLOT"
-            echo "idSb: $SLOT_IDSB"
-            echo "Udev: ${UDEV_AKTUELL:-<leer>}"
-            exit 1
-        }
+        if [ "$SLOT_STATUS" = "RECOVERY" ]; then
+            [ "$UDEV_AKTUELL" = "$NEU" ] || {
+                rm -f "$TMP"
+                echo "STOP: Recovery-Geraet besitzt nicht die erwartete neue Udev-ID."
+                echo "Slot:      $SLOT"
+                echo "Gespeichert: $SLOT_IDSB"
+                echo "Erwartet:  $NEU"
+                echo "Udev:      ${UDEV_AKTUELL:-<leer>}"
+                exit 1
+            }
+        else
+            [ "$UDEV_AKTUELL" = "$SLOT_IDSB" ] || {
+                rm -f "$TMP"
+                echo "STOP: Udev-ID stimmt vor Planerzeugung nicht mit idSb ueberein."
+                echo "Slot: $SLOT"
+                echo "idSb: $SLOT_IDSB"
+                echo "Udev: ${UDEV_AKTUELL:-<leer>}"
+                exit 1
+            }
+        fi
 
         printf 'Ermittle %-8s auf %-10s ... ' "$SLOT" "$DEV"
 
@@ -616,6 +784,22 @@ plan_erzeugen() {
                 exit 1
                 ;;
         esac
+
+        if [ "$SLOT_STATUS" = "RECOVERY" ]; then
+            if [ "$SERIAL" != "$RECOVERY_SERIAL_ERWARTET" ] ||
+               [ "$NEU" != "$RECOVERY_NEU_ERWARTET" ] ||
+               [ "$QUELLE" != "$RECOVERY_QUELLE_ERWARTET" ]; then
+                rm -f "$TMP"
+                echo "STOP: Zweite Hardware-Abfrage bestaetigt Recovery nicht."
+                echo "Slot: $SLOT"
+                echo "Serial erwartet/ist: $RECOVERY_SERIAL_ERWARTET / $SERIAL"
+                echo "ID erwartet/ist:     $RECOVERY_NEU_ERWARTET / $NEU"
+                echo "Quelle erwartet/ist: $RECOVERY_QUELLE_ERWARTET / $QUELLE"
+                exit 1
+            fi
+
+            echo "Recovery bestaetigt: $SLOT -> $DEV -> $SERIAL"
+        fi
 
         if [ -n "${GESEHENE_IDX[$SLOT_IDX]+x}" ] ||
            [ -n "${GESEHENE_DEVICE[$SLOT_DEVICE]+x}" ] ||
