@@ -520,7 +520,15 @@ recovery_geraet_ermitteln() {
         RC=$?
         set -e
 
-        [ "$RC" -eq 0 ] || continue
+        if [ "$RC" -eq 124 ]; then
+            echo "STOP: Hardware-Ermittlung fuer /dev/$NAME hat Timeout erreicht." >&2
+            return 1
+        fi
+
+        if [ "$RC" -ne 0 ]; then
+            echo "STOP: Hardware-Ermittlung fuer /dev/$NAME ist fehlgeschlagen." >&2
+            return 1
+        fi
 
         SERIAL="$(
             printf '%s\n' "$AUSGABE" |
@@ -540,14 +548,17 @@ recovery_geraet_ermitteln() {
                 head -n 1
         )"
 
-        [ -n "$SERIAL" ] || continue
-        [ -n "$NEU" ] || continue
+        if [ -z "$SERIAL" ] || [ -z "$NEU" ]; then
+            echo "STOP: Unvollstaendige Hardware-Identitaet fuer /dev/$NAME." >&2
+            return 1
+        fi
 
         case "$QUELLE" in
             ATA|NVME|USB_SAT|CACHE)
                 ;;
             *)
-                continue
+                echo "STOP: Unzulaessige Identitaetsquelle fuer /dev/$NAME: ${QUELLE:-<leer>}" >&2
+                return 1
                 ;;
         esac
 
