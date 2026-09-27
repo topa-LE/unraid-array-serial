@@ -842,24 +842,23 @@ plan_erzeugen() {
     echo "Plan-Slots: $ANZAHL"
 }
 
-if [ "$MODUS" = "APPLY" ] && [ -s "$MIGRATIONSPLAN" ]; then
+if [ "$MODUS" = "APPLY" ]; then
     echo "===== BESTEHENDEN MIGRATIONSPLAN FUER APPLY LADEN ====="
     echo
     echo "Plan: $MIGRATIONSPLAN"
     plan_laden
-
-elif [ "$MDSTATE" = "ERROR:TOO_MANY_MISSING_DISKS" ]; then
+elif [ -s "$MIGRATIONSPLAN" ]; then
     echo "===== BESTEHENDEN MIGRATIONSPLAN LADEN ====="
     echo
     plan_laden
-
 else
-    echo "===== MIGRATIONSPLAN VOR UDEV-UMSCHALTUNG ERZEUGEN ====="
+    echo "===== SICHEREN MIGRATIONSPLAN ERZEUGEN ====="
     echo
     plan_erzeugen
 
-    # Den gerade geschriebenen Plan erneut einlesen und physisch aufloesen.
-    SLOTS=()
+    echo
+    echo "===== ERZEUGTEN MIGRATIONSPLAN VERIFIZIEREN ====="
+    echo
     plan_laden
 fi
 
