@@ -1043,15 +1043,12 @@ fi
 echo "===== APPLY – SLOTWEISE UDEV- UND UNRAID-MIGRATION ====="
 echo
 
-# Ab jetzt wird jeder Slot einzeln vollstaendig migriert:
+# Zwei-Phasen-Migration:
 #
-#   1. physisches Geraet aus dem vorab verifizierten Plan verwenden
-#   2. nur dieses Geraet per Udev neu erkennen
-#   3. neue Udev-ID exakt pruefen
-#   4. denselben Unraid-Slot unmittelbar auf diese neue ID setzen
-#   5. Laufzeitzustand dieses Slots pruefen
-#
-# Erst danach wird der naechste Slot angefasst.
+#   1. jeden geplanten Slot erneut gegen Hardware und Udev pruefen
+#   2. jede verifizierte Slot-Zuweisung an Unraid uebergeben
+#   3. keine Zwischenbewertung bei teilweise migriertem Recovery
+#   4. erst nach allen Zuweisungen den Gesamtzustand pruefen
 
 for SLOT in "${SLOTS[@]}"; do
     ALT="${PLAN_ALTE_ID[$SLOT]}"
@@ -1140,114 +1137,33 @@ for SLOT in "${SLOTS[@]}"; do
     echo
     echo "Setze Unraid-Slot $SLOT / idx $SLOT_IDX auf neue ID ..."
 
-    "$EMCMD" "changeDevice=apply&slotId.${SLOT_IDX}=${NEU}"
+    set +e
+    timeout 30 "$EMCMD" "changeDevice=apply&slotId.${SLOT_IDX}=${NEU}"
+    EMCMD_RC=$?
+    set -e
 
-    sleep 1
-
-    IST_ID="$(
-        awk -v ziel="$SLOT" '
-            $0 == "[\"" ziel "\"]" {
-                drin=1
-                next
-            }
-
-            drin && /^\["[^"]+"\]$/ {
-                exit
-            }
-
-            drin && /^id="/ {
-                wert=$0
-                sub(/^id="/, "", wert)
-                sub(/"$/, "", wert)
-                print wert
-                exit
-            }
-        ' "$DISKS_INI"
-    )"
-
-    IST_IDSB="$(
-        awk -v ziel="$SLOT" '
-            $0 == "[\"" ziel "\"]" {
-                drin=1
-                next
-            }
-
-            drin && /^\["[^"]+"\]$/ {
-                exit
-            }
-
-            drin && /^idSb="/ {
-                wert=$0
-                sub(/^idSb="/, "", wert)
-                sub(/"$/, "", wert)
-                print wert
-                exit
-            }
-        ' "$DISKS_INI"
-    )"
-
-    IST_DEVICE="$(
-        awk -v ziel="$SLOT" '
-            $0 == "[\"" ziel "\"]" {
-                drin=1
-                next
-            }
-
-            drin && /^\["[^"]+"\]$/ {
-                exit
-            }
-
-            drin && /^device="/ {
-                wert=$0
-                sub(/^device="/, "", wert)
-                sub(/"$/, "", wert)
-                print wert
-                exit
-            }
-        ' "$DISKS_INI"
-    )"
-
-    IST_STATUS="$(
-        awk -v ziel="$SLOT" '
-            $0 == "[\"" ziel "\"]" {
-                drin=1
-                next
-            }
-
-            drin && /^\["[^"]+"\]$/ {
-                exit
-            }
-
-            drin && /^status="/ {
-                wert=$0
-                sub(/^status="/, "", wert)
-                sub(/"$/, "", wert)
-                print wert
-                exit
-            }
-        ' "$DISKS_INI"
-    )"
-
-    echo "Slot-ID:    ${IST_ID:-<leer>}"
-    echo "Slot-idSb:  ${IST_IDSB:-<leer>}"
-    echo "Slot-Dev:   ${IST_DEVICE:-<leer>}"
-    echo "Slotstatus: ${IST_STATUS:-<leer>}"
-
-    if [ "$IST_ID" != "$NEU" ] ||
-       [ "$IST_IDSB" != "$NEU" ] ||
-       [ -z "$IST_DEVICE" ] ||
-       [ "$IST_STATUS" != "DISK_OK" ]; then
-
-        echo
-        echo "STOP: $SLOT wurde nach der ID-Aenderung nicht sauber neu zugeordnet."
-        echo "Keine weitere Platte wird migriert."
+    if [ "$EMCMD_RC" -eq 124 ]; then
+        echo "STOP: Unraid-Zuweisung fuer $SLOT hat Timeout erreicht."
         echo "Array NICHT starten."
         exit 1
     fi
 
-    echo "Status:     $SLOT erfolgreich migriert"
+    if [ "$EMCMD_RC" -ne 0 ]; then
+        echo "STOP: Unraid-Zuweisung fuer $SLOT ist fehlgeschlagen."
+        echo "Exitcode: $EMCMD_RC"
+        echo "Array NICHT starten."
+        exit 1
+    fi
+
+    sleep 1
+    echo "Status:     Slot-Zuweisung an Unraid uebergeben"
     echo
 done
+
+# Erst nachdem alle vorab verifizierten Slots uebergeben wurden,
+# wird der gemeinsame Unraid-Laufzeitzustand ausgewertet.
+# Ein Recovery mit mehreren gleichzeitig fehlenden Slots darf nicht
+# an einem absichtlich unvollstaendigen Zwischenzustand scheitern.
 
 echo "===== APPLY – UNRAID-SLOT-ZUWEISUNGEN NACHPRUEFEN ====="
 echo
@@ -1255,7 +1171,7 @@ echo
 FEHLER=0
 
 for SLOT in "${SLOTS[@]}"; do
-    ERWARTET="${NEUE_ID[$SLOT]}"
+    ERWARTET="${PLAN_NEUE_ID[$SLOT]}"
 
     IST_ID="$(
         awk -v ziel="$SLOT" '
