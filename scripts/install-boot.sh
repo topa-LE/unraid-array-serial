@@ -13,8 +13,10 @@
 set -euo pipefail
 
 QUELLE="/boot/config/custom/array-serial"
-REGEL_QUELLE="$QUELLE/59-array-serial.rules"
-REGEL_ZIEL="/etc/udev/rules.d/59-array-serial.rules"
+REGEL_59_QUELLE="$QUELLE/59-array-serial.rules"
+REGEL_59_ZIEL="/etc/udev/rules.d/59-array-serial.rules"
+REGEL_61_QUELLE="$QUELLE/61-array-serial-nvme.rules"
+REGEL_61_ZIEL="/etc/udev/rules.d/61-array-serial-nvme.rules"
 GENERATOR="$QUELLE/serial-id.sh"
 TIMEOUT=20
 
@@ -28,7 +30,8 @@ for DATEI in \
     "$QUELLE/resolve-cached-id.sh" \
     "$QUELLE/format-disk-id.sh" \
     "$QUELLE/detect-transport.sh" \
-    "$REGEL_QUELLE"
+    "$REGEL_59_QUELLE" \
+    "$REGEL_61_QUELLE"
 do
     if [ ! -f "$DATEI" ]; then
         echo "STOP: Datei fehlt: $DATEI"
@@ -51,22 +54,31 @@ fi
 # deshalb nicht scheitern; die Regel wurde bereits im Repository
 # statisch validiert.
 if udevadm help 2>&1 | grep -qE '(^|[[:space:]])verify([[:space:]]|$)'; then
-    if udevadm verify "$REGEL_QUELLE" >/dev/null 2>&1; then
-        echo "Udev-Regelpruefung: OK."
-    else
-        echo "STOP: Udev-Regelpruefung fehlgeschlagen."
-        exit 1
-    fi
+    for REGEL in "$REGEL_59_QUELLE" "$REGEL_61_QUELLE"; do
+        if ! udevadm verify "$REGEL" >/dev/null 2>&1; then
+            echo "STOP: Udev-Regelpruefung fehlgeschlagen: $REGEL"
+            exit 1
+        fi
+    done
+    echo "Udev-Regelpruefung: OK."
 else
     echo "Udev-Regelpruefung: verify nicht verfuegbar – wird uebersprungen."
 fi
 
-if [ -e "$REGEL_ZIEL" ] && cmp -s "$REGEL_QUELLE" "$REGEL_ZIEL"; then
-    echo "Kennungsregel ist bereits aktuell."
-else
-    install -m 0644 "$REGEL_QUELLE" "$REGEL_ZIEL"
-    echo "Kennungsregel installiert/aktualisiert."
-fi
+for PAAR in \
+    "$REGEL_59_QUELLE|$REGEL_59_ZIEL" \
+    "$REGEL_61_QUELLE|$REGEL_61_ZIEL"
+do
+    QUELLDATEI="${PAAR%%|*}"
+    ZIELDATEI="${PAAR#*|}"
+
+    if [ -e "$ZIELDATEI" ] && cmp -s "$QUELLDATEI" "$ZIELDATEI"; then
+        echo "Kennungsregel bereits aktuell: $ZIELDATEI"
+    else
+        install -m 0644 "$QUELLDATEI" "$ZIELDATEI"
+        echo "Kennungsregel installiert/aktualisiert: $ZIELDATEI"
+    fi
+done
 
 udevadm control --reload
 echo "Udev-Regeln neu geladen."
