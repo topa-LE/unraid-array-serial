@@ -247,64 +247,74 @@ for ((I=0; I<COUNT; I++)); do
     NEW_ID="${NEW_IDS[$I]}"
     TMP="${CFG}.array-serial.$$"
 
-    python3 - "$CFG" "$TMP" "$OLD_ID" "$NEW_ID" <<'PYWRITE'
-from pathlib import Path
-import sys
+    DISKID_COUNT="$(
+        awk 'index($0,"diskId=\"")==1 { n++ } END { print n+0 }' "$CFG"
+    )"
 
-src = Path(sys.argv[1])
-dst = Path(sys.argv[2])
-old = sys.argv[3].encode()
-new = sys.argv[4].encode()
+    OLD_COUNT="$(
+        awk -v old="$OLD_ID" '
+            {
+                line=$0
+                sub(/\r$/, "", line)
+                if (line == "diskId=\"" old "\"")
+                    n++
+            }
+            END { print n+0 }
+        ' "$CFG"
+    )"
 
-data = src.read_bytes()
-
-needle = b'diskId="' + old + b'"'
-replacement = b'diskId="' + new + b'"'
-
-if data.count(needle) != 1:
-    raise SystemExit(42)
-
-if data.count(b'diskId="') != 1:
-    raise SystemExit(43)
-
-dst.write_bytes(data.replace(needle, replacement, 1))
-PYWRITE
-
-    RC=$?
-
-    if [ "$RC" -ne 0 ]; then
-        rm -f "$TMP"
-        echo "STOP: Bytegenaue diskId-Aenderung fehlgeschlagen: $CFG"
+    if [ "$DISKID_COUNT" -ne 1 ] || [ "$OLD_COUNT" -ne 1 ]; then
+        echo "STOP: diskId ist nicht eindeutig: $CFG"
         rollback
         exit 1
     fi
 
-    BEFORE_NORMALIZED="$(
-        python3 - "$CFG" "$OLD_ID" <<'PYCHECK'
-from pathlib import Path
-import hashlib
-import sys
+    awk -v old="$OLD_ID" -v new="$NEW_ID" '
+        {
+            cr=""
+            line=$0
 
-data = Path(sys.argv[1]).read_bytes()
-old = sys.argv[2].encode()
-needle = b'diskId="' + old + b'"'
-data = data.replace(needle, b'diskId="__IDENTITY__"', 1)
-print(hashlib.sha256(data).hexdigest())
-PYCHECK
+            if (sub(/\r$/, "", line))
+                cr="\r"
+
+            if (line == "diskId=\"" old "\"")
+                line="diskId=\"" new "\""
+
+            printf "%s%s\n", line, cr
+        }
+    ' "$CFG" > "$TMP" || {
+        rm -f "$TMP"
+        echo "STOP: diskId-Aenderung fehlgeschlagen: $CFG"
+        rollback
+        exit 1
+    }
+
+    BEFORE_NORMALIZED="$(
+        awk -v old="$OLD_ID" '
+            {
+                cr=""
+                line=$0
+                if (sub(/\r$/, "", line))
+                    cr="\r"
+                if (line == "diskId=\"" old "\"")
+                    line="diskId=\"__IDENTITY__\""
+                printf "%s%s\n", line, cr
+            }
+        ' "$CFG" | sha256sum | awk '{print $1}'
     )"
 
     AFTER_NORMALIZED="$(
-        python3 - "$TMP" "$NEW_ID" <<'PYCHECK'
-from pathlib import Path
-import hashlib
-import sys
-
-data = Path(sys.argv[1]).read_bytes()
-new = sys.argv[2].encode()
-needle = b'diskId="' + new + b'"'
-data = data.replace(needle, b'diskId="__IDENTITY__"', 1)
-print(hashlib.sha256(data).hexdigest())
-PYCHECK
+        awk -v new="$NEW_ID" '
+            {
+                cr=""
+                line=$0
+                if (sub(/\r$/, "", line))
+                    cr="\r"
+                if (line == "diskId=\"" new "\"")
+                    line="diskId=\"__IDENTITY__\""
+                printf "%s%s\n", line, cr
+            }
+        ' "$TMP" | sha256sum | awk '{print $1}'
     )"
 
     if [ "$BEFORE_NORMALIZED" != "$AFTER_NORMALIZED" ]; then

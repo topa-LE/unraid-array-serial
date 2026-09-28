@@ -16,7 +16,28 @@ set -u
 
 POOL_DIR="/boot/config/pools"
 SERIAL_ID="/boot/config/custom/array-serial/serial-id.sh"
-PLAN_FILE="${POOL_MIGRATION_PLAN_FILE:-}"
+TRANSACTION="/boot/config/custom/array-serial/pool-migration-transaction.sh"
+
+MODE="preview"
+
+case "${1:-}" in
+    "")
+        ;;
+    --apply)
+        MODE="apply"
+        ;;
+    *)
+        echo "STOP: Verwendung: $0 [--apply]"
+        exit 1
+        ;;
+esac
+
+if [ "$MODE" = "apply" ]; then
+    PLAN_FILE="/tmp/pool-migration-plan.$$"
+    trap 'rm -f "$PLAN_FILE"' EXIT HUP INT TERM
+else
+    PLAN_FILE="${POOL_MIGRATION_PLAN_FILE:-}"
+fi
 if [ -n "$PLAN_FILE" ]; then
     : > "$PLAN_FILE" || exit 1
 fi
@@ -172,8 +193,42 @@ if [ "$FEHLER" -ne 0 ]; then
 fi
 
 echo "ERGEBNIS: POOL_PREVIEW_OK"
+
+if [ "$MODE" = "apply" ]; then
+    if [ "$CHANGE_COUNT" -eq 0 ]; then
+        echo
+        echo "ERGEBNIS: POOL_MIGRATION_NICHT_ERFORDERLICH"
+        exit 0
+    fi
+
+    [ -s "$PLAN_FILE" ] || {
+        echo "STOP: Migrationsplan ist leer."
+        exit 1
+    }
+
+    [ -r "$TRANSACTION" ] || {
+        echo "STOP: Transaktionsbackend fehlt: $TRANSACTION"
+        exit 1
+    }
+
+    echo
+    echo "===== POOL-MIGRATION – APPLY ====="
+
+    POOL_MIGRATION_WRITE_GATE=1         /bin/bash "$TRANSACTION" "$PLAN_FILE" || {
+            echo "STOP: Pool-Migration fehlgeschlagen."
+            exit 1
+        }
+
+    echo
+    echo "ERGEBNIS: POOL_MIGRATION_APPLY_OK"
+fi
 echo
-echo "Preview בלבד."
-echo "Keine Pool-CFG geaendert."
+if [ "$MODE" = "preview" ]; then
+    echo "Preview."
+    echo "Keine Pool-CFG geaendert."
+else
+    echo "Apply abgeschlossen."
+    echo "Pool-CFG-Identitaeten wurden bei Bedarf migriert."
+fi
 echo "Keine Partitionierung."
 echo "Keine Dateisystem-Aenderung."
