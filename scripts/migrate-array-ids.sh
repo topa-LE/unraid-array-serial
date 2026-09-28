@@ -1040,6 +1040,22 @@ if [ "$AENDERUNGEN" -eq 0 ]; then
     exit 0
 fi
 
+echo "===== APPLY – SICHERHEITSSPERRE ====="
+echo
+echo "STOP: Persistente Migration bestehender Unraid-Array-IDs ist noch nicht freigegeben."
+echo "Der bisherige changeDevice=apply-Weg aendert den Laufzeitzustand,"
+echo "persistiert die neue ID aber nicht sicher in der bestehenden Array-Konfiguration."
+echo
+echo "Es wurde noch keine Slot-Zuweisung veraendert."
+echo "Array NICHT aufgrund dieses Skripts starten."
+echo
+echo "ERGEBNIS: APPLY_GESPERRT"
+exit 1
+
+# Der folgende historische APPLY-Code bleibt vorlaeufig im Quelltext,
+# ist durch die Sicherheitssperre aber nicht erreichbar. Er wird ersetzt,
+# sobald der persistente Unraid-Weg fuer bestehende Arrays bewiesen ist.
+
 echo "===== APPLY – SLOTWEISE UDEV- UND UNRAID-MIGRATION ====="
 echo
 
