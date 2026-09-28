@@ -325,7 +325,7 @@ plan_gegen_hardware_aufloesen() {
         ANZAHL=0
         GEFUNDEN=""
 
-        for SYS in /sys/class/block/sd*; do
+        for SYS in /sys/class/block/sd* /sys/class/block/nvme*n*; do
             [ -e "$SYS" ] || continue
 
             NAME="$(basename "$SYS")"
