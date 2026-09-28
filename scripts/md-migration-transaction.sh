@@ -1667,10 +1667,56 @@ phase_b_transaktion_ausfuehren() {
 
     echo "===== PHASE B – TRANSAKTION ====="
 
-    # Nach dem Phase-A-Reboot darf noch keine neue aktive
-    # Persistenz vorhanden sein.
-    [ ! -e /boot/config/super.dat ] ||
-        fehler "Phase B verweigert Start: aktive super.dat ist vorhanden."
+    # Nach dem Phase-A-Reboot muss der MD-Runtimezustand leer sein.
+    # Unraid darf dabei selbst bereits eine neue leere super.dat
+    # angelegt haben.
+    local MD_STATE=""
+    local MD_NUM_DISKS=""
+    local MD_NUM_MISSING=""
+    local MD_NUM_NEW=""
+    local SLOT_IDX=""
+    local SLOT_ID=""
+
+    MD_STATE="$(wert_var_ini /proc/mdstat mdState)"
+    MD_NUM_DISKS="$(wert_var_ini /proc/mdstat mdNumDisks)"
+    MD_NUM_MISSING="$(wert_var_ini /proc/mdstat mdNumMissing)"
+    MD_NUM_NEW="$(wert_var_ini /proc/mdstat mdNumNew)"
+
+    [ "$MD_STATE" = "STOPPED" ] ||
+        fehler "Phase B verweigert Start: mdState ist nicht STOPPED."
+
+    [ "$MD_NUM_DISKS" = "0" ] ||
+        fehler "Phase B verweigert Start: mdNumDisks ist nicht 0."
+
+    [ "$MD_NUM_MISSING" = "0" ] ||
+        fehler "Phase B verweigert Start: mdNumMissing ist nicht 0."
+
+    [ "$MD_NUM_NEW" = "0" ] ||
+        fehler "Phase B verweigert Start: mdNumNew ist nicht 0."
+
+    SLOT_IDX=0
+    while [ "$SLOT_IDX" -le 29 ]; do
+        SLOT_ID="$(wert_var_ini /proc/mdstat "diskId.$SLOT_IDX")"
+
+        [ -z "$SLOT_ID" ] ||
+            fehler "Phase B verweigert Start: diskId.$SLOT_IDX ist bereits belegt."
+
+        SLOT_IDX=$((SLOT_IDX + 1))
+    done
+
+    echo "OK: Leerer MD-New-Config-Zustand fuer Phase B bestaetigt."
+
+    if [ -e /boot/config/super.dat ]; then
+        [ -r /boot/config/super.dat ] ||
+            fehler "Phase B verweigert Start: aktive super.dat ist nicht lesbar."
+
+        [ -s /boot/config/super.dat ] ||
+            fehler "Phase B verweigert Start: aktive super.dat ist leer."
+
+        echo "INFO: Unraid hat bereits eine leere aktive super.dat erzeugt."
+    else
+        echo "INFO: Aktive super.dat ist noch nicht vorhanden."
+    fi
 
     [ -r "$RESUME_STATE" ] ||
         fehler "Phase B verweigert Start: Resume-State fehlt."
@@ -2193,9 +2239,6 @@ if [ "${1:-}" = "--resume-phase-b" ]; then
 
     [ -r "$RESUME_STATE" ] ||
         fehler "Phase-B-Resume verweigert: Resume-State fehlt."
-
-    [ ! -e /boot/config/super.dat ] ||
-        fehler "Phase-B-Resume verweigert: aktive super.dat ist vorhanden."
 
     phase_b_transaktion_ausfuehren
     exit $?
