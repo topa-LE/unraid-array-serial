@@ -2155,6 +2155,16 @@ if [ "${1:-}" = "--prepare-reboot" ]; then
     mkdir -p "$BACKUP_DIR" ||
         fehler "Phase-A-Backupverzeichnis konnte nicht erstellt werden."
 
+    cp -p /boot/config/super.dat "$BACKUP_DIR/super.dat" ||
+        fehler "Original-super.dat konnte nicht ins Transaktionsbackup kopiert werden."
+
+    cmp -s /boot/config/super.dat "$BACKUP_DIR/super.dat" ||
+        fehler "Original-super.dat im Transaktionsbackup ist nicht bytegleich."
+
+    sync
+
+    echo "OK: Original-super.dat bytegleich im Transaktionsbackup gesichert."
+
     phase_a_vorbereiten "$PLAN" "$BACKUP_DIR" ||
         fehler "Phase A konnte nicht persistent vorbereitet werden."
 
