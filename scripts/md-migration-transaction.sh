@@ -2134,6 +2134,48 @@ test_phase_a() {
 }
 
 
+if [ "${1:-}" = "--prepare-reboot" ]; then
+    [ "$#" -eq 2 ] || usage
+
+    PLAN="$2"
+
+    echo "===== PHASE A – REBOOT VORBEREITEN ====="
+
+    [ -r "$PLAN" ] ||
+        fehler "Phase-A-Vorbereitung verweigert: Plan nicht lesbar."
+
+    [ ! -e "$RESUME_STATE" ] ||
+        fehler "Phase-A-Vorbereitung verweigert: Resume-State existiert bereits."
+
+    [ -r /boot/config/super.dat ] ||
+        fehler "Phase-A-Vorbereitung verweigert: aktive super.dat fehlt."
+
+    BACKUP_DIR="/boot/config/custom/array-serial/md-migration-$(date +%Y%m%d-%H%M%S)"
+
+    mkdir -p "$BACKUP_DIR" ||
+        fehler "Phase-A-Backupverzeichnis konnte nicht erstellt werden."
+
+    phase_a_vorbereiten "$PLAN" "$BACKUP_DIR" ||
+        fehler "Phase A konnte nicht persistent vorbereitet werden."
+
+    [ -r "$RESUME_STATE" ] ||
+        fehler "Phase A abgeschlossen, aber Resume-State fehlt."
+
+    [ ! -e /boot/config/super.dat ] ||
+        fehler "Phase A abgeschlossen, aber aktive super.dat ist noch vorhanden."
+
+    echo
+    echo "ERGEBNIS: PHASE_A_PREPARE_REBOOT_OK"
+    echo "Backup: $BACKUP_DIR"
+    echo "Resume-State: $RESUME_STATE"
+    echo
+    echo "WICHTIG:"
+    echo "Jetzt ist ein Reboot erforderlich."
+    echo "Dieser Befehl fuehrt selbst KEINEN Reboot aus."
+
+    exit 0
+fi
+
 if [ "${1:-}" = "--resume-phase-b" ]; then
     [ "$#" -eq 1 ] || usage
 
