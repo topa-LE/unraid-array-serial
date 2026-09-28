@@ -16,6 +16,11 @@ set -u
 
 POOL_DIR="/boot/config/pools"
 SERIAL_ID="/boot/config/custom/array-serial/serial-id.sh"
+PLAN_FILE="${POOL_MIGRATION_PLAN_FILE:-}"
+if [ -n "$PLAN_FILE" ]; then
+    : > "$PLAN_FILE" || exit 1
+fi
+
 
 wert_cfg()
 {
@@ -143,6 +148,15 @@ for CFG in "$POOL_DIR"/*.cfg; do
         echo "Status:      BEREITS_SAUBER"
     else
         echo "Status:      MIGRATION_ERFORDERLICH"
+
+        if [ -n "$PLAN_FILE" ]; then
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+                "$CFG" "$UUID" "$ALT" "$NEU" "$SOURCE" "$SHORT" "$PARENT" \
+                >> "$PLAN_FILE" || {
+                    echo "STOP: Pool-Migrationsplan konnte nicht geschrieben werden."
+                    exit 1
+                }
+        fi
         CHANGE_COUNT=$((CHANGE_COUNT + 1))
     fi
 done

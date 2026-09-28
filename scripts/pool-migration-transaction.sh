@@ -52,12 +52,17 @@ declare -a UUIDS
 declare -a OLD_IDS
 declare -a NEW_IDS
 declare -a BACKUPS
+declare -a SOURCES
+declare -a SERIALS
+declare -a PARENTS
+
+SERIAL_ID="/boot/config/custom/array-serial/serial-id.sh"
 
 COUNT=0
 
 echo "===== POOL-TRANSAKTION – PREFLIGHT ====="
 
-while IFS="$(printf '\t')" read -r CFG UUID OLD_ID NEW_ID REST; do
+while IFS="$(printf '\t')" read -r CFG UUID OLD_ID NEW_ID SOURCE SERIAL PARENT REST; do
     [ -n "$CFG" ] || continue
 
     [ -z "${REST:-}" ] || {
@@ -82,6 +87,32 @@ while IFS="$(printf '\t')" read -r CFG UUID OLD_ID NEW_ID REST; do
 
     [ -n "$NEW_ID" ] || {
         fehler "neue diskId fehlt fuer $CFG"
+        exit 1
+    }
+
+    [ -n "$SOURCE" ] && [ -n "$SERIAL" ] && [ -n "$PARENT" ] || {
+        fehler "Hardware-Daten fehlen fuer $CFG"
+        exit 1
+    }
+
+    [ -b "/dev/$PARENT" ] || {
+        fehler "Parent nicht vorhanden: /dev/$PARENT"
+        exit 1
+    }
+
+    IDENT="$(timeout 20 /bin/bash "$SERIAL_ID" "/dev/$PARENT" 2>/dev/null)" || {
+        fehler "Hardware-Verifikation fehlgeschlagen: /dev/$PARENT"
+        exit 1
+    }
+
+    CHECK_SOURCE="$(printf '%s\n' "$IDENT" | awk -F= '$1=="IDENTITY_SOURCE"{print substr($0,index($0,"=")+1); exit}')"
+    CHECK_SERIAL="$(printf '%s\n' "$IDENT" | awk -F= '$1=="ID_SERIAL_SHORT"{print substr($0,index($0,"=")+1); exit}')"
+    CHECK_ID="$(printf '%s\n' "$IDENT" | awk -F= '$1=="ID_SERIAL"{print substr($0,index($0,"=")+1); exit}')"
+
+    [ "$CHECK_SOURCE" = "$SOURCE" ] &&
+    [ "$CHECK_SERIAL" = "$SERIAL" ] &&
+    [ "$CHECK_ID" = "$NEW_ID" ] || {
+        fehler "Hardware stimmt nicht mehr mit Plan ueberein: $CFG"
         exit 1
     }
 
@@ -123,6 +154,9 @@ while IFS="$(printf '\t')" read -r CFG UUID OLD_ID NEW_ID REST; do
     UUIDS[$COUNT]="$UUID"
     OLD_IDS[$COUNT]="$OLD_ID"
     NEW_IDS[$COUNT]="$NEW_ID"
+    SOURCES[$COUNT]="$SOURCE"
+    SERIALS[$COUNT]="$SERIAL"
+    PARENTS[$COUNT]="$PARENT"
 
     COUNT=$((COUNT + 1))
 done < "$PLAN"
