@@ -198,3 +198,86 @@ erforderlich und bleibt ausgeschlossen.
 Dieser Test beweist noch nicht die Semantik für Arrays mit Parität.
 Vor Einsatz auf einem produktiven Paritätsarray muss der gleiche
 Transaktionspfad kontrolliert mit Parität getestet werden.
+
+## Vollstaendiger Array-Reboottest mit Paritaet auf Unraid .12
+
+Stand: 28.09.2026
+
+Nach dem erfolgreichen Ein-Disk-Test wurde auf `.12` eine neue
+Array-Konfiguration mit einer Paritaetsplatte und sieben Datenplatten
+erstellt.
+
+Die Zuordnung wurde vollstaendig neu vorgenommen. Alle acht
+Array-Geraete verwendeten dabei die vom Projekt erzeugten bereinigten
+Hardware-IDs mit Bindestrichen.
+
+Vor dem Reboot:
+
+- `mdState=STARTED`
+- `mdNumDisks=8`
+- `mdNumMissing=0`
+- `mdNumNew=0`
+- Paritaet in Slot 0
+- sieben Datenplatten in Slot 1 bis 7
+- alle acht `diskId` mit bereinigter Bindestrich-ID
+- Paritaets-Rekonstruktion war gestartet und anschliessend pausiert
+- `super.dat` SHA256:
+  `f681f7675cbd976e91d4ca3d99506162e085430f44c1372c8cfb7f693738e236`
+
+Nach einem normalen Reboot ueber die Unraid-WebGUI:
+
+- `mdState=STOPPED`
+- `mdNumDisks=8`
+- `mdNumMissing=0`
+- `mdNumNew=0`
+- Paritaet blieb korrekt in Slot 0
+- alle sieben Datenplatten blieben korrekt in Slot 1 bis 7
+- alle acht bereinigten Hardware-IDs wurden persistent wieder geladen
+- alle sieben Datenplatten behielten ihre urspruengliche MD-Groesse
+  `9766436812`
+- Paritaet behielt die MD-Groesse `11718885324`
+
+Die aktive `super.dat` hatte nach dem Reboot den SHA256:
+
+`12d6932026a4284aa8d1b2eb4d6ca430342aa2b9ad3137305a67c52f5c800539`
+
+Die Aenderung des Datei-Hashes ist kein Identitaetsfehler. Die
+entscheidenden persistenten Slot-Zuordnungen wurden korrekt wieder
+geladen.
+
+### Paritaetsstatus
+
+Dieser Test beweist die persistente Zuordnung der Paritaetsplatte ueber
+den Reboot.
+
+Er beweist nicht, dass die vorhandenen Paritaetsdaten nach einer
+New-Config-Operation weiterhin als gueltig betrachtet werden koennen.
+
+Unraid startete eine Paritaets-Rekonstruktion (`mdResyncAction=recon P`).
+Diese wurde fuer den Identitaets-/Reboottest pausiert.
+
+Eine automatische Behauptung "Parity is already valid" darf aus diesem
+Test daher nicht abgeleitet werden.
+
+### Pool-Beobachtung
+
+Der ORICO-Pool verwendet bereits persistent die bereinigte ID:
+
+`ORICO-128-0027611003057-USB3`
+
+Beim NVMe-Cache-Pool besteht dagegen noch eine Differenz:
+
+Unraid-Poolkonfiguration:
+
+`CT1000P3SSD8_231645F178D4`
+
+Projekt-Resolver:
+
+`CT1000P3SSD8-231645F178D4`
+
+Die physische NVMe wurde korrekt erkannt. Ihre ZFS-Partition
+`nvme0n1p1` blieb vorhanden.
+
+Die persistente Pool-ID-Migration ist daher ein eigener noch zu
+implementierender Entwicklungsschritt und darf nicht mit der
+Array-`super.dat`-Migration vermischt werden.
