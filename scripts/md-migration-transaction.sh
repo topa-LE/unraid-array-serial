@@ -578,6 +578,1113 @@ md_persistenz_abschliessen() {
 
 
 
+
+RESUME_STATE="/boot/config/custom/array-serial/md-migration-resume.state"
+
+
+transaktionsmanifest_schreiben() {
+    local PLAN="$1"
+    local BACKUP_DIR="$2"
+    local MANIFEST=""
+    local MANIFEST_TMP=""
+    local MANIFEST_HASH=""
+    local SLOT_IDX=""
+    local SLOT=""
+    local CURRENT_ID=""
+    local SOLL_SERIAL=""
+    local SOLL_SOURCE=""
+    local SOLL_ID=""
+    local PLAN_SLOT=""
+    local PLAN_IDX=""
+    local PLAN_ALT=""
+    local PLAN_SERIAL=""
+    local PLAN_NEU=""
+    local PLAN_QUELLE=""
+    local PLAN_TREFFER=0
+    local DEV=""
+    local PARAMS=""
+    local START=""
+    local SIZE=""
+
+    [ -r "$PLAN" ] ||
+        fehler "Migrationsplan fuer Transaktionsmanifest nicht lesbar."
+
+    [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ] ||
+        fehler "Backup-Verzeichnis fuer Transaktionsmanifest fehlt."
+
+    MANIFEST="$BACKUP_DIR/md-transaction.tsv"
+    MANIFEST_TMP="${MANIFEST}.tmp"
+
+    [ ! -e "$MANIFEST" ] ||
+        fehler "Transaktionsmanifest existiert bereits: $MANIFEST"
+
+    : > "$MANIFEST_TMP" ||
+        fehler "Temporaeres Transaktionsmanifest konnte nicht erstellt werden."
+
+    # Exakte Unraid-Slotreihenfolge:
+    # parity1=0, parity2=29, danach data1..data28.
+    for SLOT_IDX in 0 29 $(seq 1 28); do
+        CURRENT_ID="$(sed -n "s/^diskId\\.${SLOT_IDX}=//p" /proc/mdstat | head -n1)"
+
+        # Leere Slots gehoeren nicht ins persistente Manifest.
+        [ -n "$CURRENT_ID" ] || continue
+
+        case "$SLOT_IDX" in
+            0)
+                SLOT="parity"
+                ;;
+            29)
+                SLOT="parity2"
+                ;;
+            *)
+                SLOT="disk${SLOT_IDX}"
+                ;;
+        esac
+
+        SOLL_SERIAL=""
+        SOLL_SOURCE=""
+        SOLL_ID=""
+        PLAN_TREFFER=0
+
+        while IFS=$'\t' read -r \
+            PLAN_SLOT PLAN_IDX PLAN_ALT PLAN_SERIAL PLAN_NEU PLAN_QUELLE
+        do
+            [ -n "$PLAN_SLOT" ] || continue
+
+            if [ "$PLAN_IDX" = "$SLOT_IDX" ]; then
+                PLAN_TREFFER=$((PLAN_TREFFER + 1))
+                SOLL_SERIAL="$PLAN_SERIAL"
+                SOLL_SOURCE="$PLAN_QUELLE"
+                SOLL_ID="$PLAN_NEU"
+            fi
+        done < "$PLAN"
+
+        [ "$PLAN_TREFFER" -le 1 ] ||
+            fehler "Mehrere Planeintraege fuer Slotindex $SLOT_IDX."
+
+        if [ "$PLAN_TREFFER" -eq 0 ]; then
+            # Unveraenderter belegter Slot:
+            # Geraet ueber seine aktuell von Unraid gefuehrte ID suchen
+            # und anschliessend seine echte Hardwareidentitaet sichern.
+            DEV=""
+
+            for SYS in /sys/class/block/sd* /sys/class/block/nvme*n*; do
+                [ -e "$SYS" ] || continue
+
+                CANDIDATE="$(basename "$SYS")"
+
+                case "$CANDIDATE" in
+                    sd[a-z]|nvme[0-9]*n[0-9]*)
+                        ;;
+                    *)
+                        continue
+                        ;;
+                esac
+
+                OUT="$(timeout 20 /bin/bash "$SERIAL_ID" "/dev/$CANDIDATE" 2>/dev/null)" ||
+                    continue
+
+                CANDIDATE_ID="$(printf '%s\n' "$OUT" |
+                    sed -n 's/^ID_SERIAL=//p' | head -n1)"
+
+                if [ "$CANDIDATE_ID" = "$CURRENT_ID" ]; then
+                    [ -z "$DEV" ] ||
+                        fehler "Aktuelle ID $CURRENT_ID ist nicht eindeutig."
+
+                    DEV="$CANDIDATE"
+                    SOLL_SERIAL="$(printf '%s\n' "$OUT" |
+                        sed -n 's/^ID_SERIAL_SHORT=//p' | head -n1)"
+                    SOLL_SOURCE="$(printf '%s\n' "$OUT" |
+                        sed -n 's/^IDENTITY_SOURCE=//p' | head -n1)"
+                    SOLL_ID="$CANDIDATE_ID"
+                fi
+            done
+
+            [ -n "$DEV" ] ||
+                fehler "Unveraenderter Slot $SLOT konnte nicht ueber $CURRENT_ID aufgeloest werden."
+
+            [ -n "$SOLL_SERIAL" ] &&
+            [ -n "$SOLL_SOURCE" ] &&
+            [ -n "$SOLL_ID" ] ||
+                fehler "Hardwareidentitaet fuer unveraenderten Slot $SLOT unvollstaendig."
+        else
+            DEV="$(geraet_ermitteln "$SOLL_SERIAL" "$SOLL_ID" "$SOLL_SOURCE")" ||
+                fehler "Geraet fuer Migrationsslot $SLOT konnte nicht eindeutig ermittelt werden."
+        fi
+
+        PARAMS="$(md_geraeteparameter "$DEV" "$SLOT_IDX")" ||
+            fehler "MD-Parameter fuer Slot $SLOT konnten nicht ermittelt werden."
+
+        IFS=$'\t' read -r START SIZE <<< "$PARAMS"
+
+        [ -n "$START" ] && [ -n "$SIZE" ] ||
+            fehler "Unvollstaendige MD-Parameter fuer Slot $SLOT."
+
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$SLOT_IDX" \
+            "$SLOT" \
+            "$SOLL_SERIAL" \
+            "$SOLL_SOURCE" \
+            "$SOLL_ID" \
+            "$START" \
+            "$SIZE" \
+            >> "$MANIFEST_TMP" ||
+            fehler "Transaktionsmanifest konnte nicht geschrieben werden."
+
+    done
+
+    [ -s "$MANIFEST_TMP" ] ||
+        fehler "Transaktionsmanifest ist leer."
+
+    mv "$MANIFEST_TMP" "$MANIFEST" ||
+        fehler "Transaktionsmanifest konnte nicht aktiviert werden."
+
+    MANIFEST_HASH="$(sha256sum "$MANIFEST" | awk '{print $1}')"
+
+    printf '%s  %s\n' "$MANIFEST_HASH" "$MANIFEST" \
+        > "$BACKUP_DIR/md-transaction.tsv.sha256" ||
+        fehler "SHA256-Datei des Transaktionsmanifests konnte nicht geschrieben werden."
+
+    sha256sum -c "$BACKUP_DIR/md-transaction.tsv.sha256" >/dev/null ||
+        fehler "Transaktionsmanifest konnte nicht verifiziert werden."
+
+    sync
+
+    echo "OK: Vollstaendiges MD-Transaktionsmanifest persistent geschrieben."
+    echo "Manifest: $MANIFEST"
+    echo "Belegte Slots: $(wc -l < "$MANIFEST")"
+    echo "Manifest-SHA256: $MANIFEST_HASH"
+}
+
+resume_state_schreiben() {
+    local PLAN="$1"
+    local BACKUP_DIR="$2"
+    local PLAN_HASH=""
+    local MANIFEST=""
+    local MANIFEST_HASH=""
+    local STATE_TMP=""
+
+    [ -r "$PLAN" ] ||
+        fehler "Migrationsplan fuer Resume-State nicht lesbar: $PLAN"
+
+    [ -d "$BACKUP_DIR" ] ||
+        fehler "Transaktionsverzeichnis fuer Resume-State fehlt: $BACKUP_DIR"
+
+    [ -f "$BACKUP_DIR/super.dat" ] ||
+        fehler "super.dat-Backup fuer Resume-State fehlt."
+
+    [ ! -e "$RESUME_STATE" ] ||
+        fehler "Es existiert bereits ein Resume-State: $RESUME_STATE"
+
+    PLAN_HASH="$(sha256sum "$PLAN" | awk '{print $1}')"
+
+    [ -n "$PLAN_HASH" ] ||
+        fehler "SHA256 des Migrationsplans konnte nicht ermittelt werden."
+
+    MANIFEST="$BACKUP_DIR/md-transaction.tsv"
+
+    [ -r "$MANIFEST" ] ||
+        fehler "Transaktionsmanifest fuer Resume-State fehlt."
+
+    [ -r "$BACKUP_DIR/md-transaction.tsv.sha256" ] ||
+        fehler "SHA256-Datei des Transaktionsmanifests fehlt."
+
+    sha256sum -c "$BACKUP_DIR/md-transaction.tsv.sha256" >/dev/null ||
+        fehler "Transaktionsmanifest ist vor Resume-State ungueltig."
+
+    MANIFEST_HASH="$(sha256sum "$MANIFEST" | awk '{print $1}')"
+
+    [ -n "$MANIFEST_HASH" ] ||
+        fehler "SHA256 des Transaktionsmanifests konnte nicht ermittelt werden."
+
+    cp -p "$PLAN" "$BACKUP_DIR/migration-plan.tsv" ||
+        fehler "Migrationsplan konnte nicht ins Transaktionsverzeichnis kopiert werden."
+
+    echo "$PLAN_HASH  $BACKUP_DIR/migration-plan.tsv" \
+        > "$BACKUP_DIR/migration-plan.tsv.sha256"
+
+    sha256sum -c "$BACKUP_DIR/migration-plan.tsv.sha256" >/dev/null ||
+        fehler "Gesicherter Migrationsplan konnte nicht verifiziert werden."
+
+    STATE_TMP="${RESUME_STATE}.tmp"
+
+    {
+        printf 'VERSION=1\n'
+        printf 'PHASE=AWAITING_REBOOT\n'
+        printf 'BACKUP_DIR=%s\n' "$BACKUP_DIR"
+        printf 'PLAN=%s\n' "$BACKUP_DIR/migration-plan.tsv"
+        printf 'PLAN_SHA256=%s\n' "$PLAN_HASH"
+        printf 'MANIFEST=%s\n' "$MANIFEST"
+        printf 'MANIFEST_SHA256=%s\n' "$MANIFEST_HASH"
+    } > "$STATE_TMP" ||
+        fehler "Temporaerer Resume-State konnte nicht geschrieben werden."
+
+    mv "$STATE_TMP" "$RESUME_STATE" ||
+        fehler "Resume-State konnte nicht persistent aktiviert werden."
+
+    sync
+
+    echo "OK: Persistenter Resume-State geschrieben."
+    echo "Resume-State: $RESUME_STATE"
+    echo "Phase: AWAITING_REBOOT"
+    echo "Plan-SHA256: $PLAN_HASH"
+    echo "Manifest-SHA256: $MANIFEST_HASH"
+}
+
+resume_state_laden() {
+    local VERSION=""
+    local PHASE=""
+    local BACKUP_DIR=""
+    local PLAN=""
+    local PLAN_SHA256=""
+    local MANIFEST=""
+    local MANIFEST_SHA256=""
+    local IST_HASH=""
+    local IST_MANIFEST_HASH=""
+    local KEY=""
+    local VALUE=""
+
+    [ -r "$RESUME_STATE" ] ||
+        fehler "Resume-State nicht lesbar: $RESUME_STATE"
+
+    while IFS='=' read -r KEY VALUE; do
+        case "$KEY" in
+            VERSION)
+                VERSION="$VALUE"
+                ;;
+            PHASE)
+                PHASE="$VALUE"
+                ;;
+            BACKUP_DIR)
+                BACKUP_DIR="$VALUE"
+                ;;
+            PLAN)
+                PLAN="$VALUE"
+                ;;
+            PLAN_SHA256)
+                PLAN_SHA256="$VALUE"
+                ;;
+            MANIFEST)
+                MANIFEST="$VALUE"
+                ;;
+            MANIFEST_SHA256)
+                MANIFEST_SHA256="$VALUE"
+                ;;
+            "")
+                ;;
+            *)
+                fehler "Unbekannter Eintrag im Resume-State: $KEY"
+                ;;
+        esac
+    done < "$RESUME_STATE"
+
+    [ "$VERSION" = "1" ] ||
+        fehler "Nicht unterstuetzte Resume-State-Version: ${VERSION:-LEER}"
+
+    [ "$PHASE" = "AWAITING_REBOOT" ] ||
+        fehler "Ungueltige Resume-Phase: ${PHASE:-LEER}"
+
+    [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ] ||
+        fehler "Resume-Backup-Verzeichnis fehlt."
+
+    [ -r "$BACKUP_DIR/super.dat" ] ||
+        fehler "Original-super.dat-Backup fehlt."
+
+    [ -n "$PLAN" ] && [ -r "$PLAN" ] ||
+        fehler "Gesicherter Resume-Migrationsplan fehlt."
+
+    [ "$PLAN" = "$BACKUP_DIR/migration-plan.tsv" ] ||
+        fehler "Resume-Plan liegt nicht im erwarteten Transaktionsverzeichnis."
+
+    [ -n "$PLAN_SHA256" ] ||
+        fehler "PLAN_SHA256 fehlt im Resume-State."
+
+    IST_HASH="$(sha256sum "$PLAN" | awk '{print $1}')"
+
+    [ "$IST_HASH" = "$PLAN_SHA256" ] ||
+        fehler "Gesicherter Migrationsplan stimmt nicht mit PLAN_SHA256 ueberein."
+
+    [ -r "$BACKUP_DIR/migration-plan.tsv.sha256" ] ||
+        fehler "Gesicherte SHA256-Datei des Migrationsplans fehlt."
+
+    sha256sum -c "$BACKUP_DIR/migration-plan.tsv.sha256" >/dev/null ||
+        fehler "SHA256-Verifikation des gesicherten Migrationsplans fehlgeschlagen."
+
+    [ -n "$MANIFEST" ] && [ -r "$MANIFEST" ] ||
+        fehler "Gesichertes Resume-Transaktionsmanifest fehlt."
+
+    [ "$MANIFEST" = "$BACKUP_DIR/md-transaction.tsv" ] ||
+        fehler "Resume-Manifest liegt nicht im erwarteten Transaktionsverzeichnis."
+
+    [ -n "$MANIFEST_SHA256" ] ||
+        fehler "MANIFEST_SHA256 fehlt im Resume-State."
+
+    IST_MANIFEST_HASH="$(sha256sum "$MANIFEST" | awk '{print $1}')"
+
+    [ "$IST_MANIFEST_HASH" = "$MANIFEST_SHA256" ] ||
+        fehler "Transaktionsmanifest stimmt nicht mit MANIFEST_SHA256 ueberein."
+
+    [ -r "$BACKUP_DIR/md-transaction.tsv.sha256" ] ||
+        fehler "SHA256-Datei des Resume-Transaktionsmanifests fehlt."
+
+    sha256sum -c "$BACKUP_DIR/md-transaction.tsv.sha256" >/dev/null ||
+        fehler "SHA256-Verifikation des Resume-Transaktionsmanifests fehlgeschlagen."
+
+    printf '%s\t%s\t%s\n' "$BACKUP_DIR" "$PLAN" "$MANIFEST"
+}
+
+
+PHASE_A_ROLLBACK_AKTIV=0
+PHASE_A_BACKUP_DIR=""
+
+phase_a_rollback() {
+    local RC=$?
+    local PARKED_SUPER=""
+
+    [ "$PHASE_A_ROLLBACK_AKTIV" = "1" ] || return "$RC"
+
+    trap - EXIT
+    PHASE_A_ROLLBACK_AKTIV=0
+
+    echo >&2
+    echo "===== PHASE-A-ROLLBACK =====" >&2
+
+    PARKED_SUPER="$PHASE_A_BACKUP_DIR/super.dat.pre-new-config"
+
+    if [ ! -e /boot/config/super.dat ]; then
+        if [ -f "$PARKED_SUPER" ]; then
+            cp -p "$PARKED_SUPER" /boot/config/super.dat || {
+                echo "FEHLER: super.dat konnte nicht wiederhergestellt werden." >&2
+                return 1
+            }
+        elif [ -f "$PHASE_A_BACKUP_DIR/super.dat" ]; then
+            cp -p "$PHASE_A_BACKUP_DIR/super.dat" /boot/config/super.dat || {
+                echo "FEHLER: super.dat konnte nicht aus Backup wiederhergestellt werden." >&2
+                return 1
+            }
+        else
+            echo "FEHLER: Keine wiederherstellbare Original-super.dat vorhanden." >&2
+            return 1
+        fi
+    fi
+
+    if [ -f "$PHASE_A_BACKUP_DIR/super.dat" ]; then
+        cmp -s /boot/config/super.dat "$PHASE_A_BACKUP_DIR/super.dat" || {
+            echo "FEHLER: Wiederhergestellte super.dat ist nicht bytegleich zum Backup." >&2
+            return 1
+        }
+    fi
+
+    rm -f "$RESUME_STATE" "${RESUME_STATE}.tmp"
+    sync
+
+    echo "OK: Phase A wurde persistent zurueckgerollt." >&2
+    echo "OK: Resume-State entfernt." >&2
+
+    return "$RC"
+}
+
+phase_a_rollback_scharfschalten() {
+    local BACKUP_DIR="$1"
+
+    [ -n "$BACKUP_DIR" ] ||
+        fehler "Backup-Verzeichnis fuer Phase-A-Rollback fehlt."
+
+    [ -f "$BACKUP_DIR/super.dat" ] ||
+        fehler "Original-super.dat-Backup fuer Phase-A-Rollback fehlt."
+
+    PHASE_A_BACKUP_DIR="$BACKUP_DIR"
+    PHASE_A_ROLLBACK_AKTIV=1
+    trap phase_a_rollback EXIT
+}
+
+phase_a_rollback_entschaerfen() {
+    PHASE_A_ROLLBACK_AKTIV=0
+    PHASE_A_BACKUP_DIR=""
+    trap - EXIT
+}
+
+phase_a_vorbereiten() {
+    local PLAN="$1"
+    local BACKUP_DIR="$2"
+
+    [ -n "$PLAN" ] ||
+        fehler "Migrationsplan fuer Phase A fehlt."
+
+    [ -n "$BACKUP_DIR" ] ||
+        fehler "Backup-Verzeichnis fuer Phase A fehlt."
+
+    [ -f /boot/config/super.dat ] ||
+        fehler "Phase A erwartet eine aktive super.dat."
+
+    phase_a_rollback_scharfschalten "$BACKUP_DIR"
+
+    transaktionsmanifest_schreiben "$PLAN" "$BACKUP_DIR"
+
+    resume_state_schreiben "$PLAN" "$BACKUP_DIR"
+
+    new_config_vorbereiten "$BACKUP_DIR"
+
+    [ -r "$RESUME_STATE" ] ||
+        fehler "Resume-State fehlt nach Phase-A-Vorbereitung."
+
+    [ ! -e /boot/config/super.dat ] ||
+        fehler "super.dat ist nach Phase A weiterhin aktiv."
+
+    sync
+
+    phase_a_rollback_entschaerfen
+
+    echo "OK: Phase A persistent vorbereitet."
+    echo "Resume-State vorhanden."
+    echo "Original-super.dat geparkt."
+    echo "Naechster erforderlicher Schritt: Reboot."
+}
+
+
+phase_b_manifest_pruefen() {
+    local MANIFEST="$1"
+    local SLOT_IDX=""
+    local SLOT=""
+    local SERIAL=""
+    local SOURCE=""
+    local NEWID=""
+    local START=""
+    local SIZE=""
+    local DEV=""
+    local ANZAHL=0
+
+    [ -r "$MANIFEST" ] ||
+        fehler "Phase-B-Transaktionsmanifest nicht lesbar."
+
+    while IFS=$'\t' read -r \
+        SLOT_IDX SLOT SERIAL SOURCE NEWID START SIZE
+    do
+        [ -n "$SLOT_IDX" ] || continue
+
+        case "$SLOT_IDX" in
+            0|29|[1-9]|1[0-9]|2[0-8])
+                ;;
+            *)
+                fehler "Ungueltiger Slotindex im Phase-B-Manifest: $SLOT_IDX"
+                ;;
+        esac
+
+        [ -n "$SLOT" ] &&
+        [ -n "$SERIAL" ] &&
+        [ -n "$SOURCE" ] &&
+        [ -n "$NEWID" ] &&
+        [ -n "$START" ] &&
+        [ -n "$SIZE" ] ||
+            fehler "Unvollstaendige Zeile im Phase-B-Manifest fuer Slotindex $SLOT_IDX."
+
+        case "$SOURCE" in
+            ATA|USB_SAT|NVME|CACHE)
+                ;;
+            *)
+                fehler "Ungueltige Identity-Quelle im Phase-B-Manifest: $SOURCE"
+                ;;
+        esac
+
+        case "$START" in
+            ''|*[!0-9]*)
+                fehler "Ungueltiger Partitionsstart fuer $SLOT: $START"
+                ;;
+        esac
+
+        case "$SIZE" in
+            ''|*[!0-9]*)
+                fehler "Ungueltige MD-Groesse fuer $SLOT: $SIZE"
+                ;;
+        esac
+
+        [ "$START" -gt 0 ] ||
+            fehler "Partitionsstart fuer $SLOT ist nicht groesser als 0."
+
+        [ "$SIZE" -gt 0 ] ||
+            fehler "MD-Groesse fuer $SLOT ist nicht groesser als 0."
+
+        # Nach dem Reboot niemals sdX aus Phase A vertrauen.
+        # Physisches Laufwerk erneut ueber Hardwareidentitaet aufloesen.
+        DEV="$(geraet_ermitteln "$SERIAL" "$NEWID" "$SOURCE")" ||
+            fehler "Phase B konnte $SLOT nicht eindeutig neu aufloesen."
+
+        [ -b "/dev/$DEV" ] ||
+            fehler "Phase-B-Geraet fuer $SLOT existiert nicht: /dev/$DEV"
+
+        local PART=""
+        local AKTUELLER_START=""
+
+        case "$DEV" in
+            sd[a-z])
+                PART="${DEV}1"
+                ;;
+            nvme[0-9]*n[0-9]*)
+                PART="${DEV}p1"
+                ;;
+            *)
+                fehler "Phase B kennt das Partitionsschema fuer $DEV nicht."
+                ;;
+        esac
+
+        [ -r "/sys/class/block/$PART/start" ] ||
+            fehler "Phase B kann Partitionsstart fuer $SLOT nicht lesen: $PART"
+
+        AKTUELLER_START="$(cat "/sys/class/block/$PART/start")"
+
+        case "$AKTUELLER_START" in
+            ''|*[!0-9]*)
+                fehler "Aktueller Partitionsstart fuer $SLOT ist ungueltig."
+                ;;
+        esac
+
+        [ "$AKTUELLER_START" = "$START" ] ||
+            fehler "Partitionsstart fuer $SLOT hat sich geaendert: erwartet=$START aktuell=$AKTUELLER_START"
+
+        printf 'PHASE_B_SLOT\t%s\t%s\t%s\t%s\t%s\n' \
+            "$SLOT_IDX" "$SLOT" "$DEV" "$START" "$SIZE"
+
+        printf 'PHASE_B_IMPORT\timport %s %s %s %s 0 %s\n' \
+            "$SLOT_IDX" "$DEV" "$START" "$SIZE" "$NEWID"
+
+        ANZAHL=$((ANZAHL + 1))
+
+    done < "$MANIFEST"
+
+    [ "$ANZAHL" -gt 0 ] ||
+        fehler "Phase-B-Manifest enthaelt keine belegten Slots."
+
+    echo "OK: Phase-B-Manifest vollstaendig gegen aktuelle Hardware aufgeloest."
+    echo "Belegte Slots: $ANZAHL"
+}
+
+
+
+phase_b_importdatei_erzeugen() {
+    local MANIFEST="$1"
+    local IMPORTDATEI="$2"
+    local TMP="${IMPORTDATEI}.tmp"
+    local AUFGELOEST=""
+    local SLOT_IDX=""
+    local SLOT=""
+    local SERIAL=""
+    local SOURCE=""
+    local NEWID=""
+    local START=""
+    local SIZE=""
+    local DEV=""
+    local PART=""
+    local AKTUELLER_START=""
+    local IDX=""
+    local TREFFER=0
+
+    [ -r "$MANIFEST" ] ||
+        fehler "Manifest fuer Phase-B-Importdatei nicht lesbar."
+
+    [ -n "$IMPORTDATEI" ] ||
+        fehler "Pfad fuer Phase-B-Importdatei fehlt."
+
+    AUFGELOEST="${IMPORTDATEI}.resolved"
+
+    : > "$AUFGELOEST" ||
+        fehler "Temporaere Phase-B-Aufloesung konnte nicht erstellt werden."
+
+    # Zuerst ALLE belegten Slots vollstaendig pruefen und neu aufloesen.
+    # Bis dieser Durchlauf erfolgreich beendet ist, wird nichts geschrieben.
+    while IFS=$'\t' read -r \
+        SLOT_IDX SLOT SERIAL SOURCE NEWID START SIZE
+    do
+        [ -n "$SLOT_IDX" ] || continue
+
+        case "$SLOT_IDX" in
+            0|29|[1-9]|1[0-9]|2[0-8])
+                ;;
+            *)
+                rm -f "$AUFGELOEST"
+                fehler "Ungueltiger Slotindex im Phase-B-Manifest: $SLOT_IDX"
+                ;;
+        esac
+
+        [ -n "$SLOT" ] &&
+        [ -n "$SERIAL" ] &&
+        [ -n "$SOURCE" ] &&
+        [ -n "$NEWID" ] &&
+        [ -n "$START" ] &&
+        [ -n "$SIZE" ] || {
+            rm -f "$AUFGELOEST"
+            fehler "Unvollstaendige Phase-B-Manifestzeile fuer Slot $SLOT_IDX."
+        }
+
+        case "$SOURCE" in
+            ATA|USB_SAT|NVME|CACHE)
+                ;;
+            *)
+                rm -f "$AUFGELOEST"
+                fehler "Ungueltige Identity-Quelle fuer $SLOT: $SOURCE"
+                ;;
+        esac
+
+        DEV="$(geraet_ermitteln "$SERIAL" "$NEWID" "$SOURCE")" || {
+            rm -f "$AUFGELOEST"
+            fehler "Phase B konnte $SLOT nicht eindeutig neu aufloesen."
+        }
+
+        case "$DEV" in
+            sd[a-z])
+                PART="${DEV}1"
+                ;;
+            nvme[0-9]*n[0-9]*)
+                PART="${DEV}p1"
+                ;;
+            *)
+                rm -f "$AUFGELOEST"
+                fehler "Unbekanntes Partitionsschema fuer $DEV."
+                ;;
+        esac
+
+        [ -r "/sys/class/block/$PART/start" ] || {
+            rm -f "$AUFGELOEST"
+            fehler "Partitionsstart fuer $SLOT nicht lesbar."
+        }
+
+        AKTUELLER_START="$(cat "/sys/class/block/$PART/start")"
+
+        [ "$AKTUELLER_START" = "$START" ] || {
+            rm -f "$AUFGELOEST"
+            fehler "Partitionsstart fuer $SLOT stimmt nicht mehr: erwartet=$START aktuell=$AKTUELLER_START"
+        }
+
+        printf '%s\t%s\t%s\t%s\t%s\n' \
+            "$SLOT_IDX" "$DEV" "$START" "$SIZE" "$NEWID" \
+            >> "$AUFGELOEST" || {
+                rm -f "$AUFGELOEST"
+                fehler "Phase-B-Aufloesung konnte nicht gespeichert werden."
+            }
+
+    done < "$MANIFEST"
+
+    [ -s "$AUFGELOEST" ] || {
+        rm -f "$AUFGELOEST"
+        fehler "Phase-B-Aufloesung ist leer."
+    }
+
+    : > "$TMP" || {
+        rm -f "$AUFGELOEST"
+        fehler "Temporaere Phase-B-Importdatei konnte nicht erstellt werden."
+    }
+
+    # Erst nach erfolgreicher Gesamtpruefung die komplette Importfolge bauen.
+    for IDX in 0 29 $(seq 1 28); do
+        TREFFER="$(awk -F '\t' -v idx="$IDX" '$1 == idx {n++} END {print n+0}' "$AUFGELOEST")"
+
+        [ "$TREFFER" -le 1 ] || {
+            rm -f "$AUFGELOEST" "$TMP"
+            fehler "Mehrfachbelegung fuer Slotindex $IDX in Phase-B-Aufloesung."
+        }
+
+        if [ "$TREFFER" -eq 0 ]; then
+            printf 'import %s\n' "$IDX" >> "$TMP" || {
+                rm -f "$AUFGELOEST" "$TMP"
+                fehler "Leerer Import fuer Slotindex $IDX konnte nicht geschrieben werden."
+            }
+        else
+            awk -F '\t' -v idx="$IDX" '
+                $1 == idx {
+                    printf "import %s %s %s %s 0 %s\n",
+                           $1, $2, $3, $4, $5
+                }
+            ' "$AUFGELOEST" >> "$TMP" || {
+                rm -f "$AUFGELOEST" "$TMP"
+                fehler "Belegter Import fuer Slotindex $IDX konnte nicht geschrieben werden."
+            }
+        fi
+    done
+
+    [ "$(wc -l < "$TMP")" -eq 30 ] || {
+        rm -f "$AUFGELOEST" "$TMP"
+        fehler "Phase-B-Importdatei enthaelt nicht exakt 30 Importbefehle."
+    }
+
+    mv "$TMP" "$IMPORTDATEI" || {
+        rm -f "$AUFGELOEST" "$TMP"
+        fehler "Phase-B-Importdatei konnte nicht aktiviert werden."
+    }
+
+    rm -f "$AUFGELOEST"
+
+    local IMPORT_HASH=""
+    local HASHDATEI="${IMPORTDATEI}.sha256"
+
+    IMPORT_HASH="$(sha256sum "$IMPORTDATEI" | awk '{print $1}')"
+
+    [ -n "$IMPORT_HASH" ] ||
+        fehler "SHA256 der Phase-B-Importdatei konnte nicht ermittelt werden."
+
+    printf '%s  %s\n' "$IMPORT_HASH" "$IMPORTDATEI" > "$HASHDATEI" ||
+        fehler "SHA256-Datei der Phase-B-Importdatei konnte nicht geschrieben werden."
+
+    sha256sum -c "$HASHDATEI" >/dev/null ||
+        fehler "Phase-B-Importdatei konnte nach dem Schreiben nicht verifiziert werden."
+
+    sync
+
+    echo "OK: Vollstaendige Phase-B-Importdatei erzeugt."
+    echo "Importdatei: $IMPORTDATEI"
+    echo "Importbefehle: $(wc -l < "$IMPORTDATEI")"
+    echo "Import-SHA256: $IMPORT_HASH"
+}
+
+
+
+
+PHASE_B_ROLLBACK_AKTIV=0
+PHASE_B_BACKUP_DIR=""
+PHASE_B_WRITE_GESTARTET=0
+
+phase_b_rollback() {
+    local RC=$?
+    local BACKUP_DIR="$PHASE_B_BACKUP_DIR"
+    local ORIGINAL=""
+    local RESTORE_TMP="/boot/config/super.dat.phase-b-rollback.tmp"
+
+    [ "$PHASE_B_ROLLBACK_AKTIV" -eq 1 ] || return "$RC"
+
+    echo
+    echo "===== PHASE-B-ROLLBACK ====="
+    echo "FEHLER: Phase B wurde nicht erfolgreich abgeschlossen."
+
+    if [ "$PHASE_B_WRITE_GESTARTET" -eq 1 ]; then
+        echo "WARNUNG: MD-Runtime kann bereits teilweise veraendert sein."
+        echo "Nach Wiederherstellung der Persistenz ist ein Reboot erforderlich."
+    fi
+
+    [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ] || {
+        echo "ROLLBACK-FEHLER: Backup-Verzeichnis fehlt."
+        return "$RC"
+    }
+
+    ORIGINAL="$BACKUP_DIR/super.dat"
+
+    [ -r "$ORIGINAL" ] || {
+        echo "ROLLBACK-FEHLER: Original-super.dat fehlt: $ORIGINAL"
+        return "$RC"
+    }
+
+    rm -f "$RESTORE_TMP"
+
+    cp -p "$ORIGINAL" "$RESTORE_TMP" || {
+        echo "ROLLBACK-FEHLER: super.dat konnte nicht vorbereitet werden."
+        rm -f "$RESTORE_TMP"
+        return "$RC"
+    }
+
+    cmp -s "$ORIGINAL" "$RESTORE_TMP" || {
+        echo "ROLLBACK-FEHLER: Vorbereitete super.dat ist nicht bytegleich."
+        rm -f "$RESTORE_TMP"
+        return "$RC"
+    }
+
+    mv -f "$RESTORE_TMP" /boot/config/super.dat || {
+        echo "ROLLBACK-FEHLER: Original-super.dat konnte nicht aktiviert werden."
+        rm -f "$RESTORE_TMP"
+        return "$RC"
+    }
+
+    cmp -s "$ORIGINAL" /boot/config/super.dat || {
+        echo "ROLLBACK-FEHLER: Wiederhergestellte super.dat ist nicht bytegleich."
+        return "$RC"
+    }
+
+    sync
+
+    echo "OK: Original-super.dat bytegleich wiederhergestellt."
+
+    if [ -r "$RESUME_STATE" ]; then
+        echo "OK: Resume-State bleibt zur Fehlerdiagnose erhalten."
+    else
+        echo "WARNUNG: Resume-State ist nicht mehr vorhanden."
+    fi
+
+    echo "ERGEBNIS: PHASE_B_ROLLBACK_AKTIV"
+    echo "ERFORDERLICH: Reboot vor einem weiteren Migrationsversuch."
+
+    return "$RC"
+}
+
+phase_b_rollback_scharfschalten() {
+    local BACKUP_DIR="$1"
+
+    [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ] ||
+        fehler "Phase-B-Rollback kann ohne Backup-Verzeichnis nicht aktiviert werden."
+
+    [ -r "$BACKUP_DIR/super.dat" ] ||
+        fehler "Phase-B-Rollback findet Original-super.dat nicht."
+
+    PHASE_B_BACKUP_DIR="$BACKUP_DIR"
+    PHASE_B_WRITE_GESTARTET=0
+    PHASE_B_ROLLBACK_AKTIV=1
+
+    trap phase_b_rollback EXIT
+
+    echo "OK: Phase-B-Rollback scharf."
+}
+
+phase_b_write_markieren() {
+    [ "$PHASE_B_ROLLBACK_AKTIV" -eq 1 ] ||
+        fehler "Phase-B-Schreibphase darf ohne scharfen Rollback nicht beginnen."
+
+    PHASE_B_WRITE_GESTARTET=1
+}
+
+phase_b_rollback_entschaerfen() {
+    PHASE_B_ROLLBACK_AKTIV=0
+    PHASE_B_WRITE_GESTARTET=0
+    PHASE_B_BACKUP_DIR=""
+
+    trap - EXIT
+
+    echo "OK: Phase-B-Rollback entschaerft."
+}
+
+phase_b_importdatei_schreiben() {
+    local IMPORTDATEI="$1"
+    local HASHDATEI="${IMPORTDATEI}.sha256"
+    local ZEILE=""
+    local NR=0
+    local IDX=""
+    local ERWARTET=""
+
+    [ -r "$IMPORTDATEI" ] ||
+        fehler "Phase-B-Importdatei nicht lesbar: $IMPORTDATEI"
+
+    [ -r "$HASHDATEI" ] ||
+        fehler "SHA256-Datei der Phase-B-Importdatei fehlt: $HASHDATEI"
+
+    sha256sum -c "$HASHDATEI" >/dev/null ||
+        fehler "Phase-B-Importdatei stimmt nicht mit ihrer SHA256-Datei ueberein."
+
+    [ "$(wc -l < "$IMPORTDATEI")" -eq 30 ] ||
+        fehler "Phase-B-Importdatei enthaelt nicht exakt 30 Befehle."
+
+    # Vor dem ersten Schreibzugriff jede einzelne Zeile nochmals
+    # syntaktisch und in der erwarteten Unraid-Slotreihenfolge pruefen.
+    while IFS= read -r ZEILE; do
+        NR=$((NR + 1))
+
+        case "$NR" in
+            1)
+                ERWARTET=0
+                ;;
+            2)
+                ERWARTET=29
+                ;;
+            *)
+                ERWARTET=$((NR - 2))
+                ;;
+        esac
+
+        case "$ZEILE" in
+            "import $ERWARTET")
+                ;;
+            "import $ERWARTET "*)
+                set -- $ZEILE
+
+                [ "$#" -eq 7 ] ||
+                    fehler "Ungueltiger belegter Import in Zeile $NR."
+
+                [ "$1" = "import" ] ||
+                    fehler "Ungueltiger Befehl in Zeile $NR."
+
+                [ "$2" = "$ERWARTET" ] ||
+                    fehler "Falscher Slotindex in Zeile $NR."
+
+                case "$3" in
+                    sd[a-z]|nvme[0-9]*n[0-9]*)
+                        ;;
+                    *)
+                        fehler "Ungueltiges Blockgeraet in Zeile $NR: $3"
+                        ;;
+                esac
+
+                case "$4" in
+                    ''|*[!0-9]*)
+                        fehler "Ungueltiger Partitionsstart in Zeile $NR."
+                        ;;
+                esac
+
+                case "$5" in
+                    ''|*[!0-9]*)
+                        fehler "Ungueltige MD-Groesse in Zeile $NR."
+                        ;;
+                esac
+
+                [ "$4" -gt 0 ] ||
+                    fehler "Partitionsstart in Zeile $NR ist 0."
+
+                [ "$5" -gt 0 ] ||
+                    fehler "MD-Groesse in Zeile $NR ist 0."
+
+                [ "$6" = "0" ] ||
+                    fehler "Ungueltiges Import-Flag in Zeile $NR."
+
+                [ -n "$7" ] ||
+                    fehler "Disk-ID in Zeile $NR fehlt."
+                ;;
+            *)
+                fehler "Importreihenfolge oder Syntax in Zeile $NR ungueltig."
+                ;;
+        esac
+    done < "$IMPORTDATEI"
+
+    [ "$NR" -eq 30 ] ||
+        fehler "Phase-B-Vorpruefung hat nicht exakt 30 Befehle gesehen."
+
+    [ -w /proc/mdcmd ] ||
+        fehler "/proc/mdcmd ist fuer Phase B nicht schreibbar."
+
+    # Erst ab hier findet der erste MD-Schreibzugriff statt.
+    NR=0
+
+    while IFS= read -r ZEILE; do
+        NR=$((NR + 1))
+
+        echo "MD-WRITE $NR/30: $ZEILE"
+
+        md_befehl_schreiben "$ZEILE" ||
+            fehler "Phase-B-MD-Import fehlgeschlagen in Zeile $NR."
+    done < "$IMPORTDATEI"
+
+    echo "OK: Alle 30 verifizierten Phase-B-Importbefehle geschrieben."
+}
+
+test_phase_b_rollback() {
+    local BACKUP_DIR="$1"
+
+    [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ] ||
+        fehler "Phase-B-Rollback-Testverzeichnis fehlt."
+
+    [ -r "$BACKUP_DIR/super.dat" ] ||
+        fehler "Original-super.dat im Testverzeichnis fehlt."
+
+    [ -r /boot/config/super.dat ] ||
+        fehler "Aktive super.dat fehlt vor Rollback-Test."
+
+    cmp -s "$BACKUP_DIR/super.dat" /boot/config/super.dat ||
+        fehler "Aktive super.dat stimmt vor Rollback-Test nicht mit Backup ueberein."
+
+    echo "===== PHASE-B-ROLLBACK-TEST ====="
+
+    phase_b_rollback_scharfschalten "$BACKUP_DIR"
+
+    rm -f /boot/config/super.dat ||
+        fehler "Aktive super.dat konnte fuer Rollback-Test nicht entfernt werden."
+
+    [ ! -e /boot/config/super.dat ] ||
+        fehler "Aktive super.dat ist im Rollback-Test noch vorhanden."
+
+    echo "OK: Aktive super.dat kontrolliert entfernt."
+    echo "TEST: Jetzt wird absichtlich ein Fehler ausgeloest."
+
+    false
+
+    # Darf niemals erreicht werden.
+    phase_b_rollback_entschaerfen
+    return 0
+}
+test_phase_b_importdatei() {
+    local BACKUP_DIR="$1"
+    local MANIFEST=""
+    local IMPORTDATEI=""
+
+    [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ] ||
+        fehler "Phase-B-Testverzeichnis fehlt: $BACKUP_DIR"
+
+    MANIFEST="$BACKUP_DIR/md-transaction.tsv"
+    IMPORTDATEI="$BACKUP_DIR/phase-b-imports.test"
+
+    [ -r "$MANIFEST" ] ||
+        fehler "Manifest fuer Phase-B-Importdateitest fehlt."
+
+    [ -r "$BACKUP_DIR/md-transaction.tsv.sha256" ] ||
+        fehler "Manifest-SHA256 fuer Phase-B-Importdateitest fehlt."
+
+    sha256sum -c "$BACKUP_DIR/md-transaction.tsv.sha256" >/dev/null ||
+        fehler "Manifest-SHA256 fuer Phase-B-Importdateitest ungueltig."
+
+    rm -f "$IMPORTDATEI" "${IMPORTDATEI}.tmp" "${IMPORTDATEI}.resolved"
+
+    echo "===== PHASE-B-IMPORTDATEI-TEST ====="
+
+    phase_b_importdatei_erzeugen "$MANIFEST" "$IMPORTDATEI"
+
+    echo
+    echo "===== IMPORTDATEI ====="
+    cat "$IMPORTDATEI"
+
+    echo
+    echo "ERGEBNIS: PHASE_B_IMPORTDATEI_TEST_OK"
+}
+test_phase_b_manifest() {
+    local BACKUP_DIR="$1"
+    local MANIFEST=""
+
+    [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ] ||
+        fehler "Phase-B-Testverzeichnis fehlt: $BACKUP_DIR"
+
+    MANIFEST="$BACKUP_DIR/md-transaction.tsv"
+
+    [ -r "$BACKUP_DIR/migration-plan.tsv" ] ||
+        fehler "Gesicherter Migrationsplan fuer Phase-B-Test fehlt."
+
+    [ -r "$BACKUP_DIR/migration-plan.tsv.sha256" ] ||
+        fehler "Plan-SHA256 fuer Phase-B-Test fehlt."
+
+    sha256sum -c "$BACKUP_DIR/migration-plan.tsv.sha256" >/dev/null ||
+        fehler "Plan-SHA256 fuer Phase-B-Test ungueltig."
+
+    [ -r "$MANIFEST" ] ||
+        fehler "Manifest fuer Phase-B-Test fehlt."
+
+    [ -r "$BACKUP_DIR/md-transaction.tsv.sha256" ] ||
+        fehler "Manifest-SHA256 fuer Phase-B-Test fehlt."
+
+    sha256sum -c "$BACKUP_DIR/md-transaction.tsv.sha256" >/dev/null ||
+        fehler "Manifest-SHA256 fuer Phase-B-Test ungueltig."
+
+    echo "===== PHASE-B-DRY-RUN ====="
+    echo "Transaktionsverzeichnis: $BACKUP_DIR"
+
+    phase_b_manifest_pruefen "$MANIFEST"
+
+    echo "ERGEBNIS: PHASE_B_DRY_RUN_OK"
+}
+phase_b_fortsetzen() {
+    local RESUME_INFO=""
+    local BACKUP_DIR=""
+    local PLAN=""
+
+    [ ! -e /boot/config/super.dat ] ||
+        fehler "Phase B verweigert Start: aktive super.dat vorhanden."
+
+    RESUME_INFO="$(resume_state_laden)" ||
+        fehler "Resume-State konnte nicht verifiziert werden."
+
+    IFS=$'\t' read -r BACKUP_DIR PLAN <<< "$RESUME_INFO"
+
+    [ -n "$BACKUP_DIR" ] ||
+        fehler "Backup-Verzeichnis aus Resume-State fehlt."
+
+    [ -n "$PLAN" ] ||
+        fehler "Migrationsplan aus Resume-State fehlt."
+
+    echo "OK: Phase B wurde eindeutig verifiziert."
+    echo "Backup: $BACKUP_DIR"
+    echo "Plan: $PLAN"
+
+    # Noch absichtlich KEINE MD-Schreibphase.
+    # Freigabe erfolgt erst nach separatem Phase-B-Kontrolltest.
+}
+
 ROLLBACK_AKTIV=0
 ROLLBACK_BACKUP_DIR=""
 
@@ -714,6 +1821,99 @@ md_transaktion_ausfuehren() {
     echo
     echo "ERGEBNIS: MD_TRANSAKTION_OK"
 }
+
+
+test_phase_a() {
+    local PLAN="$1"
+    local TESTDIR=""
+    local VOR_HASH=""
+    local NACH_HASH=""
+
+    [ -r "$PLAN" ] ||
+        fehler "Migrationsplan fuer Phase-A-Test nicht lesbar."
+
+    [ -f /boot/config/super.dat ] ||
+        fehler "Phase-A-Test erwartet aktive super.dat."
+
+    VOR_HASH="$(sha256sum /boot/config/super.dat | awk '{print $1}')"
+
+    TESTDIR="/boot/config/custom/array-serial/phase-a-test-$(date +%Y%m%d-%H%M%S)"
+
+    mkdir -p "$TESTDIR" ||
+        fehler "Phase-A-Testverzeichnis konnte nicht erstellt werden."
+
+    cp -p /boot/config/super.dat "$TESTDIR/super.dat" ||
+        fehler "Phase-A-Testbackup konnte nicht erstellt werden."
+
+    cmp -s /boot/config/super.dat "$TESTDIR/super.dat" ||
+        fehler "Phase-A-Testbackup ist nicht bytegleich."
+
+    echo "===== PHASE-A-TEST ====="
+    echo "Backup: $TESTDIR"
+    echo
+
+    phase_a_vorbereiten "$PLAN" "$TESTDIR"
+
+    [ ! -e /boot/config/super.dat ] ||
+        fehler "Phase-A-Test: super.dat wurde nicht geparkt."
+
+    [ -f "$TESTDIR/super.dat.pre-new-config" ] ||
+        fehler "Phase-A-Test: Parkdatei fehlt."
+
+    [ -r "$RESUME_STATE" ] ||
+        fehler "Phase-A-Test: Resume-State fehlt."
+
+    resume_state_laden >/dev/null ||
+        fehler "Phase-A-Test: Resume-State ist ungueltig."
+
+    echo
+    echo "===== PHASE-A-TESTROLLBACK ====="
+
+    cp -p "$TESTDIR/super.dat.pre-new-config" /boot/config/super.dat ||
+        fehler "Phase-A-Test: Original-super.dat konnte nicht zurueckgelegt werden."
+
+    cmp -s /boot/config/super.dat "$TESTDIR/super.dat" ||
+        fehler "Phase-A-Test: wiederhergestellte super.dat ist nicht bytegleich."
+
+    rm -f "$RESUME_STATE" "${RESUME_STATE}.tmp"
+    sync
+
+    NACH_HASH="$(sha256sum /boot/config/super.dat | awk '{print $1}')"
+
+    [ "$NACH_HASH" = "$VOR_HASH" ] ||
+        fehler "Phase-A-Test: super.dat-Hash stimmt nach Rollback nicht."
+
+    echo "OK: Phase A ausgefuehrt."
+    echo "OK: Resume-State verifiziert."
+    echo "OK: Original-super.dat bytegleich wiederhergestellt."
+    echo "ERGEBNIS: PHASE_A_TEST_OK"
+}
+
+
+if [ "${1:-}" = "--test-phase-b-rollback" ]; then
+    [ "$#" -eq 2 ] || usage
+    test_phase_b_rollback "$2"
+    RC=$?
+    exit "$RC"
+fi
+
+if [ "${1:-}" = "--test-phase-b-importdatei" ]; then
+    [ "$#" -eq 2 ] || usage
+    test_phase_b_importdatei "$2"
+    exit $?
+fi
+
+if [ "${1:-}" = "--test-phase-b-manifest" ]; then
+    [ "$#" -eq 2 ] || usage
+    test_phase_b_manifest "$2"
+    exit $?
+fi
+
+if [ "${1:-}" = "--test-phase-a" ]; then
+    [ "$#" -eq 2 ] || usage
+    test_phase_a "$2"
+    exit $?
+fi
 
 apply() {
     local BACKUP_DIR=""
