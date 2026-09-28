@@ -1557,6 +1557,250 @@ phase_b_importdatei_schreiben() {
     echo "OK: Alle 30 verifizierten Phase-B-Importbefehle geschrieben."
 }
 
+
+
+phase_b_nachpruefen() {
+    local MANIFEST="$1"
+    local SLOT_IDX=""
+    local SLOT=""
+    local SERIAL=""
+    local SOURCE=""
+    local NEWID=""
+    local START=""
+    local SIZE=""
+    local AKT_ID=""
+    local AKT_SIZE=""
+    local MANIFEST_ANZAHL=0
+    local MD_ANZAHL=""
+    local MD_MISSING=""
+    local MD_NEW=""
+    local SUPER_HASH=""
+
+    echo "===== PHASE B – NACHPRUEFUNG ====="
+
+    [ -r "$MANIFEST" ] ||
+        fehler "Phase-B-Nachpruefung: Manifest nicht lesbar."
+
+    [ -r /boot/config/super.dat ] ||
+        fehler "Phase-B-Nachpruefung: neue super.dat fehlt."
+
+    [ -s /boot/config/super.dat ] ||
+        fehler "Phase-B-Nachpruefung: neue super.dat ist leer."
+
+    SUPER_HASH="$(sha256sum /boot/config/super.dat | awk '{print $1}')"
+
+    [ -n "$SUPER_HASH" ] ||
+        fehler "Phase-B-Nachpruefung: SHA256 der neuen super.dat fehlt."
+
+    while IFS=$'\t' read -r \
+        SLOT_IDX SLOT SERIAL SOURCE NEWID START SIZE
+    do
+        [ -n "$SLOT_IDX" ] || continue
+
+        MANIFEST_ANZAHL=$((MANIFEST_ANZAHL + 1))
+
+        AKT_ID="$(wert_var_ini "diskId.$SLOT_IDX" /proc/mdstat)"
+        AKT_SIZE="$(wert_var_ini "diskSize.$SLOT_IDX" /proc/mdstat)"
+
+        [ "$AKT_ID" = "$NEWID" ] ||
+            fehler "Phase-B-Nachpruefung: ID fuer $SLOT stimmt nicht: erwartet=$NEWID aktuell=$AKT_ID"
+
+        [ "$AKT_SIZE" = "$SIZE" ] ||
+            fehler "Phase-B-Nachpruefung: MD-Groesse fuer $SLOT stimmt nicht: erwartet=$SIZE aktuell=$AKT_SIZE"
+
+        echo "OK: $SLOT / Slot $SLOT_IDX"
+        echo "    ID:   $AKT_ID"
+        echo "    SIZE: $AKT_SIZE"
+
+    done < "$MANIFEST"
+
+    [ "$MANIFEST_ANZAHL" -gt 0 ] ||
+        fehler "Phase-B-Nachpruefung: Manifest enthaelt keine belegten Slots."
+
+    MD_ANZAHL="$(wert_var_ini "mdNumDisks" /proc/mdstat)"
+    MD_MISSING="$(wert_var_ini "mdNumMissing" /proc/mdstat)"
+    MD_NEW="$(wert_var_ini "mdNumNew" /proc/mdstat)"
+
+    case "$MD_ANZAHL" in
+        ''|*[!0-9]*)
+            fehler "Phase-B-Nachpruefung: mdNumDisks ist ungueltig."
+            ;;
+    esac
+
+    case "$MD_MISSING" in
+        ''|*[!0-9]*)
+            fehler "Phase-B-Nachpruefung: mdNumMissing ist ungueltig."
+            ;;
+    esac
+
+    case "$MD_NEW" in
+        ''|*[!0-9]*)
+            fehler "Phase-B-Nachpruefung: mdNumNew ist ungueltig."
+            ;;
+    esac
+
+    [ "$MD_ANZAHL" -eq "$MANIFEST_ANZAHL" ] ||
+        fehler "Phase-B-Nachpruefung: mdNumDisks=$MD_ANZAHL, Manifest=$MANIFEST_ANZAHL."
+
+    [ "$MD_MISSING" -eq 0 ] ||
+        fehler "Phase-B-Nachpruefung: mdNumMissing=$MD_MISSING."
+
+    [ "$MD_NEW" -eq 0 ] ||
+        fehler "Phase-B-Nachpruefung: mdNumNew=$MD_NEW."
+
+    echo
+    echo "Neue super.dat SHA256: $SUPER_HASH"
+    echo "Belegte Manifest-Slots: $MANIFEST_ANZAHL"
+    echo "mdNumDisks: $MD_ANZAHL"
+    echo "mdNumMissing: $MD_MISSING"
+    echo "mdNumNew: $MD_NEW"
+    echo
+    echo "ERGEBNIS: PHASE_B_NACHPRUEFUNG_OK"
+}
+
+phase_b_transaktion_ausfuehren() {
+    local RESUME=""
+    local BACKUP_DIR=""
+    local PLAN=""
+    local MANIFEST=""
+    local IMPORTDATEI=""
+
+    echo "===== PHASE B – TRANSAKTION ====="
+
+    # Nach dem Phase-A-Reboot darf noch keine neue aktive
+    # Persistenz vorhanden sein.
+    [ ! -e /boot/config/super.dat ] ||
+        fehler "Phase B verweigert Start: aktive super.dat ist vorhanden."
+
+    [ -r "$RESUME_STATE" ] ||
+        fehler "Phase B verweigert Start: Resume-State fehlt."
+
+    RESUME="$(resume_state_laden)" ||
+        fehler "Phase-B-Resume-State konnte nicht verifiziert werden."
+
+    IFS=$'\t' read -r BACKUP_DIR PLAN MANIFEST <<EOF
+$RESUME
+EOF
+
+    [ -n "$BACKUP_DIR" ] &&
+    [ -n "$PLAN" ] &&
+    [ -n "$MANIFEST" ] ||
+        fehler "Phase-B-Resume-State ist unvollstaendig."
+
+    [ -r "$BACKUP_DIR/super.dat" ] ||
+        fehler "Phase B findet Original-super.dat im Backup nicht."
+
+    [ -r "$PLAN" ] ||
+        fehler "Phase B findet persistierten Migrationsplan nicht."
+
+    [ -r "$MANIFEST" ] ||
+        fehler "Phase B findet persistiertes Transaktionsmanifest nicht."
+
+    IMPORTDATEI="$BACKUP_DIR/phase-b-imports.tsv"
+
+    echo "Backup:   $BACKUP_DIR"
+    echo "Plan:     $PLAN"
+    echo "Manifest: $MANIFEST"
+
+    echo
+    echo "===== PHASE B – KOMPLETTE VORPRUEFUNG ====="
+
+    # Diese Funktion löst ALLE belegten Slots gegen die aktuelle
+    # Hardware neu auf und prüft u.a. den Partitionsstart.
+    phase_b_manifest_pruefen "$MANIFEST" ||
+        fehler "Phase-B-Hardwarepruefung fehlgeschlagen."
+
+    echo
+    echo "===== PHASE B – IMPORTFOLGE ERZEUGEN ====="
+
+    rm -f \
+        "$IMPORTDATEI" \
+        "${IMPORTDATEI}.tmp" \
+        "${IMPORTDATEI}.resolved" \
+        "${IMPORTDATEI}.sha256"
+
+    phase_b_importdatei_erzeugen "$MANIFEST" "$IMPORTDATEI" ||
+        fehler "Phase-B-Importfolge konnte nicht erzeugt werden."
+
+    [ -r "$IMPORTDATEI" ] &&
+    [ -r "${IMPORTDATEI}.sha256" ] ||
+        fehler "Phase-B-Importfolge oder SHA256 fehlt."
+
+    sha256sum -c "${IMPORTDATEI}.sha256" >/dev/null ||
+        fehler "Phase-B-Importfolge ist vor Schreibbeginn nicht mehr bytegleich."
+
+    echo
+    echo "===== PHASE B – ROLLBACK SCHARF ====="
+
+    phase_b_rollback_scharfschalten "$BACKUP_DIR"
+
+    # Ab hier muss jeder Fehler den persistenten Rollback auslösen.
+    phase_b_write_markieren
+
+    echo
+    echo "===== PHASE B – MD-IMPORTS ====="
+
+    phase_b_importdatei_schreiben "$IMPORTDATEI" ||
+        fehler "Phase-B-Importfolge konnte nicht vollstaendig geschrieben werden."
+
+    echo
+    echo "===== PHASE B – NEW_ARRAY ====="
+
+    md_befehl_schreiben "start NEW_ARRAY" ||
+        fehler "Phase-B start NEW_ARRAY fehlgeschlagen."
+
+    echo
+    echo "===== PHASE B – NACHPRUEFUNG ====="
+
+    phase_b_nachpruefen "$MANIFEST" ||
+        fehler "Phase-B-Nachpruefung fehlgeschlagen."
+
+    echo
+    echo "===== PHASE B – NEUE PERSISTENZ SICHERN ====="
+
+    local NEUER_SUPER_HASH=""
+    local NEUER_SUPER_HASHDATEI="$BACKUP_DIR/super.dat.after-migration.sha256"
+
+    NEUER_SUPER_HASH="$(sha256sum /boot/config/super.dat | awk '{print $1}')"
+
+    [ -n "$NEUER_SUPER_HASH" ] ||
+        fehler "SHA256 der neuen super.dat konnte nicht ermittelt werden."
+
+    printf '%s  %s\n'         "$NEUER_SUPER_HASH"         "/boot/config/super.dat"         > "$NEUER_SUPER_HASHDATEI" ||
+        fehler "SHA256 der neuen super.dat konnte nicht persistent gespeichert werden."
+
+    sha256sum -c "$NEUER_SUPER_HASHDATEI" >/dev/null ||
+        fehler "Neue super.dat stimmt nicht mit gespeichertem SHA256 ueberein."
+
+    sync
+
+    echo "Neue super.dat SHA256: $NEUER_SUPER_HASH"
+    echo "OK: Neue Persistenz verifiziert."
+
+    echo
+    echo "===== PHASE B – TRANSAKTION ABSCHLIESSEN ====="
+
+    # Erst JETZT darf der EXIT-Rollback abgeschaltet werden.
+    phase_b_rollback_entschaerfen
+
+    rm -f "$RESUME_STATE" "${RESUME_STATE}.tmp" ||
+        fehler "Resume-State konnte nach erfolgreicher Migration nicht entfernt werden."
+
+    sync
+
+    [ ! -e "$RESUME_STATE" ] ||
+        fehler "Resume-State ist nach Abschluss noch vorhanden."
+
+    echo
+    echo "ERGEBNIS: PHASE_B_TRANSAKTION_OK"
+    echo "Neue super.dat ist vorhanden und vollstaendig verifiziert."
+    echo "Alle Manifest-Slots stimmen."
+    echo "Rollback ist entschaerft."
+    echo "Resume-State ist entfernt."
+
+    return 0
+}
+
 test_phase_b_rollback() {
     local BACKUP_DIR="$1"
 
@@ -1889,6 +2133,21 @@ test_phase_a() {
     echo "ERGEBNIS: PHASE_A_TEST_OK"
 }
 
+
+if [ "${1:-}" = "--resume-phase-b" ]; then
+    [ "$#" -eq 1 ] || usage
+
+    echo "===== MANUELLER PHASE-B-RESUME ====="
+
+    [ -r "$RESUME_STATE" ] ||
+        fehler "Phase-B-Resume verweigert: Resume-State fehlt."
+
+    [ ! -e /boot/config/super.dat ] ||
+        fehler "Phase-B-Resume verweigert: aktive super.dat ist vorhanden."
+
+    phase_b_transaktion_ausfuehren
+    exit $?
+fi
 
 if [ "${1:-}" = "--test-phase-b-rollback" ]; then
     [ "$#" -eq 2 ] || usage
