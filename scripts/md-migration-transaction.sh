@@ -576,10 +576,125 @@ md_persistenz_abschliessen() {
 }
 
 
+
+
+ROLLBACK_AKTIV=0
+ROLLBACK_BACKUP_DIR=""
+
+persistenz_rollback() {
+    local RC=$?
+    local PARKED_SUPER=""
+
+    [ "$ROLLBACK_AKTIV" = "1" ] || return "$RC"
+
+    trap - EXIT
+    ROLLBACK_AKTIV=0
+
+    echo >&2
+    echo "===== PERSISTENZ-ROLLBACK =====" >&2
+
+    PARKED_SUPER="$ROLLBACK_BACKUP_DIR/super.dat.pre-new-config"
+
+    if [ ! -f "$PARKED_SUPER" ]; then
+        echo "FEHLER: Geparkte Original-super.dat fehlt." >&2
+        echo "STOP: Manueller Eingriff erforderlich." >&2
+        return 1
+    fi
+
+    if [ -e /boot/config/super.dat ]; then
+        rm -f /boot/config/super.dat || {
+            echo "FEHLER: Neue/teilweise super.dat konnte nicht entfernt werden." >&2
+            return 1
+        }
+    fi
+
+    cp -p "$PARKED_SUPER" /boot/config/super.dat || {
+        echo "FEHLER: Original-super.dat konnte nicht wiederhergestellt werden." >&2
+        return 1
+    }
+
+    cmp -s /boot/config/super.dat "$PARKED_SUPER" || {
+        echo "FEHLER: Wiederhergestellte super.dat ist nicht bytegleich." >&2
+        return 1
+    }
+
+    sync
+
+    echo "OK: Urspruengliche super.dat persistent wiederhergestellt." >&2
+    echo "HINWEIS: MD-Runtime kann veraendert sein; vor weiterer Nutzung ist ein Reboot erforderlich." >&2
+
+    return "$RC"
+}
+
+rollback_scharfschalten() {
+    local BACKUP_DIR="$1"
+
+    [ -n "$BACKUP_DIR" ] ||
+        fehler "Backup-Verzeichnis fuer Rollback fehlt."
+
+    [ -f "$BACKUP_DIR/super.dat" ] ||
+        fehler "Rollback-Backup fehlt: $BACKUP_DIR/super.dat"
+
+    ROLLBACK_BACKUP_DIR="$BACKUP_DIR"
+    ROLLBACK_AKTIV=1
+    trap persistenz_rollback EXIT
+}
+
+rollback_entschaerfen() {
+    ROLLBACK_AKTIV=0
+    ROLLBACK_BACKUP_DIR=""
+    trap - EXIT
+}
+
+new_config_vorbereiten() {
+    local BACKUP_DIR="$1"
+    local PARKED_SUPER=""
+
+    [ -n "$BACKUP_DIR" ] ||
+        fehler "Backup-Verzeichnis fuer New-Config-Umschaltung fehlt."
+
+    [ -f "$BACKUP_DIR/super.dat" ] ||
+        fehler "Verifiziertes super.dat-Backup fehlt: $BACKUP_DIR/super.dat"
+
+    [ -f /boot/config/super.dat ] ||
+        fehler "Aktive super.dat fehlt bereits."
+
+    cmp -s /boot/config/super.dat "$BACKUP_DIR/super.dat" ||
+        fehler "Aktive super.dat stimmt nicht mehr mit dem verifizierten Backup ueberein."
+
+    PARKED_SUPER="$BACKUP_DIR/super.dat.pre-new-config"
+
+    [ ! -e "$PARKED_SUPER" ] ||
+        fehler "Parkdatei existiert bereits: $PARKED_SUPER"
+
+    mv /boot/config/super.dat "$PARKED_SUPER" ||
+        fehler "Aktive super.dat konnte nicht sicher geparkt werden."
+
+    [ ! -e /boot/config/super.dat ] ||
+        fehler "Aktive super.dat ist nach dem Parken weiterhin vorhanden."
+
+    cmp -s "$PARKED_SUPER" "$BACKUP_DIR/super.dat" ||
+        fehler "Geparkte super.dat stimmt nicht mit dem Backup ueberein."
+
+    echo "OK: Aktive super.dat kontrolliert aus dem Persistenzpfad genommen."
+    echo "Geparkt: $PARKED_SUPER"
+}
+
 md_transaktion_ausfuehren() {
+    local BACKUP_DIR="$1"
+
+    [ -n "$BACKUP_DIR" ] ||
+        fehler "Backup-Verzeichnis fuer MD-Transaktion fehlt."
+
     echo "===== MD-SCHREIBPHASE ====="
     echo
 
+    echo "===== 0. NEW-CONFIG-SICHERHEIT ====="
+
+    rollback_scharfschalten "$BACKUP_DIR"
+    new_config_vorbereiten "$BACKUP_DIR"
+
+    echo
     echo "===== 1. VOLLSTAENDIGE IMPORTSEQUENZ ====="
     md_imports_schreiben ||
         fehler "MD-Importsequenz fehlgeschlagen."
@@ -593,6 +708,8 @@ md_transaktion_ausfuehren() {
     echo "===== 3. NACHKONTROLLE ====="
     transaktion_pruefen ||
         fehler "MD-Nachkontrolle fehlgeschlagen."
+
+    rollback_entschaerfen
 
     echo
     echo "ERGEBNIS: MD_TRANSAKTION_OK"
