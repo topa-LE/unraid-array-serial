@@ -135,3 +135,66 @@ Persistenzmechanismus ein bestehendes Array verwenden kann, um dieselbe
 eindeutig verifizierte physische Platte unter ihrer neuen ID zu
 uebernehmen, ohne New-Config-Semantik, Datenverlust oder ungewollte
 Parity-Neuerstellung.
+
+## Erfolgreicher Zwei-Phasen-Persistenztest auf Unraid .12
+
+Stand: 28.09.2026
+
+Der vollständige Zwei-Phasen-Migrationspfad wurde auf dem
+Ein-Disk-Testsystem `.12` ohne Parität erfolgreich durchgeführt.
+
+Ablauf:
+
+1. Phase A verifizierte Plan, Manifest und Originalkonfiguration.
+2. Die originale `super.dat` wurde gesichert und für den
+   New-Config-Übergang geparkt.
+3. Nach dem Reboot befand sich der MD-Runtime-Zustand vollständig leer:
+   `mdState=STOPPED`, `mdNumDisks=0`, `mdNumMissing=0`, `mdNumNew=0`.
+4. Unraid erzeugte dabei selbst eine leere aktive 4096-Byte-`super.dat`.
+5. Phase B löste die Hardware erneut anhand der echten Identität auf.
+6. Eine vollständige Importfolge für alle 30 Array-Slots wurde erzeugt.
+7. Alle 30 Importbefehle wurden geschrieben.
+8. `start NEW_ARRAY` erzeugte eine neue gültige persistente Konfiguration.
+9. Die Phase-B-Nachprüfung bestätigte den erwarteten Slot, die neue ID,
+   die ursprüngliche MD-Größe sowie `Missing=0` und `New=0`.
+10. Der Resume-State wurde erst nach erfolgreicher Validierung entfernt.
+11. Ein weiterer normaler Reboot bestätigte die Persistenz.
+
+Verifizierter Zustand nach dem abschließenden Reboot:
+
+- `mdState=STOPPED`
+- `mdNumDisks=1`
+- `mdNumMissing=0`
+- `mdNumNew=0`
+- `diskName.1=md1p1`
+- `diskSize.1=9766436812`
+- `rdevSize.1=9766436812`
+- `diskState.1=7`
+- `diskId.1=WDC-WD101EFBX-68B0AN0-VH0ATR0M`
+
+Neue persistente `super.dat`:
+
+`03fec99a51d7b028f6497891977cc20348e5d680f663151d0983a0e50ba318a7`
+
+Die Datei blieb über den abschließenden Reboot bytegleich.
+
+Originale `super.dat` vor der Migration:
+
+`ba893f9db5c8bb9ac60a79a8b58cb0f7e1004342dc9b17b72c7909f65cc4961d`
+
+Das Original und die geparkte Originalkopie blieben im
+Transaktionsbackup erhalten.
+
+### Schlussfolgerung
+
+Für das getestete Array ohne Parität ist damit bewiesen, dass die
+bereinigte Geräte-ID über einen kontrollierten New-Config-Zyklus in
+eine vom Unraid-MD-System selbst erzeugte `super.dat` übernommen werden
+kann und nach einem normalen Reboot persistent wieder geladen wird.
+
+Ein direktes binäres Patchen von `super.dat` ist hierfür nicht
+erforderlich und bleibt ausgeschlossen.
+
+Dieser Test beweist noch nicht die Semantik für Arrays mit Parität.
+Vor Einsatz auf einem produktiven Paritätsarray muss der gleiche
+Transaktionspfad kontrolliert mit Parität getestet werden.
