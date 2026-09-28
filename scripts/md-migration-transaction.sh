@@ -1599,8 +1599,8 @@ phase_b_nachpruefen() {
 
         MANIFEST_ANZAHL=$((MANIFEST_ANZAHL + 1))
 
-        AKT_ID="$(wert_var_ini "diskId.$SLOT_IDX" /proc/mdstat)"
-        AKT_SIZE="$(wert_var_ini "diskSize.$SLOT_IDX" /proc/mdstat)"
+        AKT_ID="$(awk -F= -v KEY="diskId.$SLOT_IDX" '$1==KEY{print substr($0,index($0,"=")+1)}' /proc/mdstat)"
+        AKT_SIZE="$(awk -F= -v KEY="diskSize.$SLOT_IDX" '$1==KEY{print substr($0,index($0,"=")+1)}' /proc/mdstat)"
 
         [ "$AKT_ID" = "$NEWID" ] ||
             fehler "Phase-B-Nachpruefung: ID fuer $SLOT stimmt nicht: erwartet=$NEWID aktuell=$AKT_ID"
@@ -1617,9 +1617,9 @@ phase_b_nachpruefen() {
     [ "$MANIFEST_ANZAHL" -gt 0 ] ||
         fehler "Phase-B-Nachpruefung: Manifest enthaelt keine belegten Slots."
 
-    MD_ANZAHL="$(wert_var_ini "mdNumDisks" /proc/mdstat)"
-    MD_MISSING="$(wert_var_ini "mdNumMissing" /proc/mdstat)"
-    MD_NEW="$(wert_var_ini "mdNumNew" /proc/mdstat)"
+    MD_ANZAHL="$(awk -F= '$1=="mdNumDisks"{print substr($0,index($0,"=")+1)}' /proc/mdstat)"
+    MD_MISSING="$(awk -F= '$1=="mdNumMissing"{print substr($0,index($0,"=")+1)}' /proc/mdstat)"
+    MD_NEW="$(awk -F= '$1=="mdNumNew"{print substr($0,index($0,"=")+1)}' /proc/mdstat)"
 
     case "$MD_ANZAHL" in
         ''|*[!0-9]*)
@@ -1677,10 +1677,10 @@ phase_b_transaktion_ausfuehren() {
     local SLOT_IDX=""
     local SLOT_ID=""
 
-    MD_STATE="$(wert_var_ini /proc/mdstat mdState)"
-    MD_NUM_DISKS="$(wert_var_ini /proc/mdstat mdNumDisks)"
-    MD_NUM_MISSING="$(wert_var_ini /proc/mdstat mdNumMissing)"
-    MD_NUM_NEW="$(wert_var_ini /proc/mdstat mdNumNew)"
+    MD_STATE="$(awk -F= '$1=="mdState"{print substr($0,index($0,"=")+1)}' /proc/mdstat)"
+    MD_NUM_DISKS="$(awk -F= '$1=="mdNumDisks"{print substr($0,index($0,"=")+1)}' /proc/mdstat)"
+    MD_NUM_MISSING="$(awk -F= '$1=="mdNumMissing"{print substr($0,index($0,"=")+1)}' /proc/mdstat)"
+    MD_NUM_NEW="$(awk -F= '$1=="mdNumNew"{print substr($0,index($0,"=")+1)}' /proc/mdstat)"
 
     [ "$MD_STATE" = "STOPPED" ] ||
         fehler "Phase B verweigert Start: mdState ist nicht STOPPED."
@@ -1696,7 +1696,7 @@ phase_b_transaktion_ausfuehren() {
 
     SLOT_IDX=0
     while [ "$SLOT_IDX" -le 29 ]; do
-        SLOT_ID="$(wert_var_ini /proc/mdstat "diskId.$SLOT_IDX")"
+        SLOT_ID="$(awk -F= -v KEY="diskId.$SLOT_IDX" '$1==KEY{print substr($0,index($0,"=")+1)}' /proc/mdstat)"
 
         [ -z "$SLOT_ID" ] ||
             fehler "Phase B verweigert Start: diskId.$SLOT_IDX ist bereits belegt."
