@@ -209,6 +209,28 @@ for SYSDEV in /sys/class/block/*; do
         exit 1
     fi
 
+    # Bereits vorhandene Partitionen erhalten nach dem Laden unserer
+    # Regeln ebenfalls ein gezieltes Event. Beim fruehen Boot koennen
+    # sie bereits vor Regel 62 mit den Standard-Udev-IDs angelegt worden sein.
+    while IFS= read -r PARTITION; do
+        [ -n "$PARTITION" ] || continue
+
+        echo "INITIALISIERE PARTITION: /dev/$PARTITION"
+
+        if ! timeout "$TIMEOUT" \
+            udevadm trigger \
+                --action=change \
+                --sysname-match="$PARTITION" \
+                --subsystem-match=block
+        then
+            echo "STOP: Udev-Trigger fuer /dev/$PARTITION fehlgeschlagen."
+            exit 1
+        fi
+    done < <(
+        lsblk -rno NAME,TYPE "/dev/$NAME" 2>/dev/null |
+            awk '$2 == "part" { print $1 }'
+    )
+
     UDEV_ID=""
     UDEV_SHORT=""
 
