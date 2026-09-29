@@ -19,6 +19,8 @@ REGEL_61_QUELLE="$QUELLE/61-array-serial-nvme.rules"
 REGEL_61_ZIEL="/etc/udev/rules.d/61-array-serial-nvme.rules"
 REGEL_62_QUELLE="$QUELLE/62-array-serial-partitions.rules"
 REGEL_62_ZIEL="/etc/udev/rules.d/62-array-serial-partitions.rules"
+REGEL_63_QUELLE="$QUELLE/63-array-serial-nvme-links.rules"
+REGEL_63_ZIEL="/etc/udev/rules.d/63-array-serial-nvme-links.rules"
 GENERATOR="$QUELLE/serial-id.sh"
 PARTITION_GENERATOR="$QUELLE/partition-id.sh"
 TIMEOUT=20
@@ -36,7 +38,8 @@ for DATEI in \
     "$QUELLE/detect-transport.sh" \
     "$REGEL_59_QUELLE" \
     "$REGEL_61_QUELLE" \
-    "$REGEL_62_QUELLE"
+    "$REGEL_62_QUELLE" \
+    "$REGEL_63_QUELLE"
 do
     if [ ! -f "$DATEI" ]; then
         echo "STOP: Datei fehlt: $DATEI"
@@ -60,7 +63,7 @@ fi
 # deshalb nicht scheitern; die Regel wurde bereits im Repository
 # statisch validiert.
 if udevadm help 2>&1 | grep -qE '(^|[[:space:]])verify([[:space:]]|$)'; then
-    for REGEL in "$REGEL_59_QUELLE" "$REGEL_61_QUELLE" "$REGEL_62_QUELLE"; do
+    for REGEL in "$REGEL_59_QUELLE" "$REGEL_61_QUELLE" "$REGEL_62_QUELLE" "$REGEL_63_QUELLE"; do
         if ! udevadm verify "$REGEL" >/dev/null 2>&1; then
             echo "STOP: Udev-Regelpruefung fehlgeschlagen: $REGEL"
             exit 1
@@ -74,7 +77,8 @@ fi
 for PAAR in \
     "$REGEL_59_QUELLE|$REGEL_59_ZIEL" \
     "$REGEL_61_QUELLE|$REGEL_61_ZIEL" \
-    "$REGEL_62_QUELLE|$REGEL_62_ZIEL"
+    "$REGEL_62_QUELLE|$REGEL_62_ZIEL" \
+    "$REGEL_63_QUELLE|$REGEL_63_ZIEL"
 do
     QUELLDATEI="${PAAR%%|*}"
     ZIELDATEI="${PAAR#*|}"

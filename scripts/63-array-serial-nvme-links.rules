@@ -1,0 +1,7 @@
+# Unraid Array Serial
+#
+# Stabile NVMe-by-id-Links auf Basis der bereits normalisierten ID_SERIAL.
+# Die systemd-Udev-Legacy-Links bleiben aus Kompatibilitaetsgruenden bestehen.
+
+ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="nvme[0-9]*n[0-9]*", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/nvme-$env{ID_SERIAL}"
+ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", KERNEL=="nvme[0-9]*n[0-9]p[0-9]*", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/nvme-$env{ID_SERIAL}-part%n"
