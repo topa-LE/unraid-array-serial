@@ -1682,17 +1682,31 @@ phase_b_transaktion_ausfuehren() {
     MD_NUM_MISSING="$(awk -F= '$1=="mdNumMissing"{print substr($0,index($0,"=")+1)}' /proc/mdstat)"
     MD_NUM_NEW="$(awk -F= '$1=="mdNumNew"{print substr($0,index($0,"=")+1)}' /proc/mdstat)"
 
-    [ "$MD_STATE" = "STOPPED" ] ||
-        fehler "Phase B verweigert Start: mdState ist nicht STOPPED."
+    case "$MD_STATE" in
+        STOPPED)
+            [ "$MD_NUM_DISKS" = "0" ] ||
+                fehler "Phase B verweigert STOPPED-Zustand: mdNumDisks ist nicht 0."
 
-    [ "$MD_NUM_DISKS" = "0" ] ||
-        fehler "Phase B verweigert Start: mdNumDisks ist nicht 0."
+            [ "$MD_NUM_NEW" = "0" ] ||
+                fehler "Phase B verweigert STOPPED-Zustand: mdNumNew ist nicht 0."
+            ;;
+        NEW_ARRAY)
+            case "$MD_NUM_DISKS" in
+                ''|*[!0-9]*)
+                    fehler "Phase B verweigert NEW_ARRAY-Zustand: mdNumDisks ist ungueltig."
+                    ;;
+            esac
+
+            [ "$MD_NUM_NEW" = "$MD_NUM_DISKS" ] ||
+                fehler "Phase B verweigert NEW_ARRAY-Zustand: nicht alle Disks sind NEW."
+            ;;
+        *)
+            fehler "Phase B verweigert Start: unzulaessiger mdState $MD_STATE."
+            ;;
+    esac
 
     [ "$MD_NUM_MISSING" = "0" ] ||
         fehler "Phase B verweigert Start: mdNumMissing ist nicht 0."
-
-    [ "$MD_NUM_NEW" = "0" ] ||
-        fehler "Phase B verweigert Start: mdNumNew ist nicht 0."
 
     SLOT_IDX=0
     while [ "$SLOT_IDX" -le 29 ]; do
