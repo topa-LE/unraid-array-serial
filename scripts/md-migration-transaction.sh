@@ -1639,8 +1639,20 @@ phase_b_nachpruefen() {
             ;;
     esac
 
-    [ "$MD_ANZAHL" -eq "$MANIFEST_ANZAHL" ] ||
-        fehler "Phase-B-Nachpruefung: mdNumDisks=$MD_ANZAHL, Manifest=$MANIFEST_ANZAHL."
+    # mdNumDisks ist kein verlaesslicher Zaehler der tatsaechlich
+    # belegten Array-Slots. Entscheidend ist die reale diskId-Belegung.
+    SLOT_IDX=0
+    while [ "$SLOT_IDX" -le 29 ]; do
+        AKT_ID="$(awk -F= -v KEY="diskId.$SLOT_IDX" '$1==KEY{print substr($0,index($0,"=")+1)}' /proc/mdstat)"
+
+        if [ -n "$AKT_ID" ]; then
+            if ! awk -F '\t' -v IDX="$SLOT_IDX" '$1 == IDX { found=1 } END { exit(found ? 0 : 1) }' "$MANIFEST"; then
+                fehler "Phase-B-Nachpruefung: unerwartet belegter Slot $SLOT_IDX mit ID $AKT_ID."
+            fi
+        fi
+
+        SLOT_IDX=$((SLOT_IDX + 1))
+    done
 
     [ "$MD_MISSING" -eq 0 ] ||
         fehler "Phase-B-Nachpruefung: mdNumMissing=$MD_MISSING."
