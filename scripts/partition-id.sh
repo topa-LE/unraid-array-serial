@@ -72,6 +72,16 @@ SERIAL="$(
 [ -n "$SERIAL" ] || exit 1
 
 printf 'IDENTITY_SOURCE=%s\n' "$SOURCE"
+
+# Partitionen muessen denselben Bus-Kontext wie ihr Whole-Disk-Parent
+# erhalten, damit 60-persistent-storage.rules den korrekten
+# ata-<ID_SERIAL>-partN-Link erzeugen kann.
+case "$SOURCE" in
+    USB_SAT|ATA|CACHE)
+        printf 'ID_BUS=ata\n'
+        ;;
+esac
+
 printf 'ID_SERIAL_SHORT=%s\n' "$SHORT"
 printf 'ID_SERIAL=%s\n' "$SERIAL"
 printf 'ID_SERIAL_PARENT=%s\n' "$PARENT"
