@@ -71,6 +71,17 @@ awk '
         next
     }
 
+    # Reste einer früher bereits unvollständig entfernten Fehlerbehandlung.
+    /^[[:space:]]*echo "array-serial: install-boot\.sh fehlgeschlagen\." >&2[[:space:]]*$/ {
+        orphan_block=1
+        next
+    }
+
+    orphan_block && /^[[:space:]]*\}[[:space:]]*$/ {
+        orphan_block=0
+        next
+    }
+
     /\/boot\/config\/custom\/array-serial\/boot-log\.sh/       { next }
     /\/boot\/config\/custom\/array-serial\/boot-capture\.sh/   { next }
 
