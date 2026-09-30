@@ -49,6 +49,7 @@ BACKUP_DIR="$BACKUP_ROOT/pool-migration-$STAMP"
 
 declare -a CFGS
 declare -a UUIDS
+declare -a CFG_KEYS
 declare -a OLD_IDS
 declare -a NEW_IDS
 declare -a BACKUPS
@@ -62,7 +63,7 @@ COUNT=0
 
 echo "===== POOL-TRANSAKTION – PREFLIGHT ====="
 
-while IFS="$(printf '\t')" read -r CFG UUID OLD_ID NEW_ID SOURCE SERIAL PARENT REST; do
+while IFS="$(printf '\t')" read -r CFG UUID CFG_KEY OLD_ID NEW_ID SOURCE SERIAL PARENT REST; do
     [ -n "$CFG" ] || continue
 
     [ -z "${REST:-}" ] || {
@@ -80,8 +81,17 @@ while IFS="$(printf '\t')" read -r CFG UUID OLD_ID NEW_ID SOURCE SERIAL PARENT R
         exit 1
     }
 
+    case "$CFG_KEY" in
+        diskId|diskId.[0-9]*)
+            ;;
+        *)
+            fehler "Ungueltiger Pool-diskId-Key fuer $CFG: $CFG_KEY"
+            exit 1
+            ;;
+    esac
+
     [ -n "$OLD_ID" ] || {
-        fehler "alte diskId fehlt fuer $CFG"
+        fehler "alte diskId fehlt fuer $CFG / $CFG_KEY"
         exit 1
     }
 
@@ -129,7 +139,7 @@ while IFS="$(printf '\t')" read -r CFG UUID OLD_ID NEW_ID SOURCE SERIAL PARENT R
     )"
 
     CURRENT_ID="$(
-        awk -v key="diskId" '
+        awk -v key="$CFG_KEY" '
             index($0,key "=\"")==1 {
                 x=substr($0,length(key)+3)
                 sub(/\r$/, "", x)
@@ -146,12 +156,13 @@ while IFS="$(printf '\t')" read -r CFG UUID OLD_ID NEW_ID SOURCE SERIAL PARENT R
     }
 
     [ "$CURRENT_ID" = "$OLD_ID" ] || {
-        fehler "diskId stimmt nicht mehr: $CFG"
+        fehler "$CFG_KEY stimmt nicht mehr: $CFG"
         exit 1
     }
 
     CFGS[$COUNT]="$CFG"
     UUIDS[$COUNT]="$UUID"
+    CFG_KEYS[$COUNT]="$CFG_KEY"
     OLD_IDS[$COUNT]="$OLD_ID"
     NEW_IDS[$COUNT]="$NEW_ID"
     SOURCES[$COUNT]="$SOURCE"
@@ -178,6 +189,21 @@ mkdir -p "$BACKUP_DIR" || {
 
 for ((I=0; I<COUNT; I++)); do
     CFG="${CFGS[$I]}"
+    BACKUP=""
+
+    for ((J=0; J<I; J++)); do
+        if [ "${CFGS[$J]}" = "$CFG" ]; then
+            BACKUP="${BACKUPS[$J]}"
+            break
+        fi
+    done
+
+    if [ -n "$BACKUP" ]; then
+        BACKUPS[$I]="$BACKUP"
+        echo "OK: Backup bereits vorhanden: $(basename "$CFG")"
+        continue
+    fi
+
     BACKUP="$BACKUP_DIR/$(basename "$CFG")"
 
     [ ! -e "$BACKUP" ] || {
@@ -223,7 +249,16 @@ rollback()
     for ((R=0; R<COUNT; R++)); do
         CFG="${CFGS[$R]}"
         BACKUP="${BACKUPS[$R]:-}"
+        BEREITS_WIEDERHERGESTELLT=0
 
+        for ((J=0; J<R; J++)); do
+            if [ "${CFGS[$J]}" = "$CFG" ]; then
+                BEREITS_WIEDERHERGESTELLT=1
+                break
+            fi
+        done
+
+        [ "$BEREITS_WIEDERHERGESTELLT" -eq 0 ] || continue
         [ -n "$BACKUP" ] || continue
         [ -r "$BACKUP" ] || continue
 
@@ -243,33 +278,42 @@ echo "===== WRITE-PHASE ====="
 for ((I=0; I<COUNT; I++)); do
     CFG="${CFGS[$I]}"
     UUID="${UUIDS[$I]}"
+    CFG_KEY="${CFG_KEYS[$I]}"
     OLD_ID="${OLD_IDS[$I]}"
     NEW_ID="${NEW_IDS[$I]}"
     TMP="${CFG}.array-serial.$$"
 
-    DISKID_COUNT="$(
-        awk 'index($0,"diskId=\"")==1 { n++ } END { print n+0 }' "$CFG"
-    )"
-
-    OLD_COUNT="$(
-        awk -v old="$OLD_ID" '
+    KEY_COUNT="$(
+        awk -v key="$CFG_KEY" '
             {
                 line=$0
                 sub(/\r$/, "", line)
-                if (line == "diskId=\"" old "\"")
+                if (index(line,key "=\"")==1)
                     n++
             }
             END { print n+0 }
         ' "$CFG"
     )"
 
-    if [ "$DISKID_COUNT" -ne 1 ] || [ "$OLD_COUNT" -ne 1 ]; then
-        echo "STOP: diskId ist nicht eindeutig: $CFG"
+    OLD_COUNT="$(
+        awk -v key="$CFG_KEY" -v old="$OLD_ID" '
+            {
+                line=$0
+                sub(/\r$/, "", line)
+                if (line == key "=\"" old "\"")
+                    n++
+            }
+            END { print n+0 }
+        ' "$CFG"
+    )"
+
+    if [ "$KEY_COUNT" -ne 1 ] || [ "$OLD_COUNT" -ne 1 ]; then
+        echo "STOP: $CFG_KEY ist nicht eindeutig: $CFG"
         rollback
         exit 1
     fi
 
-    awk -v old="$OLD_ID" -v new="$NEW_ID" '
+    awk -v key="$CFG_KEY" -v old="$OLD_ID" -v new="$NEW_ID" '
         {
             cr=""
             line=$0
@@ -277,41 +321,41 @@ for ((I=0; I<COUNT; I++)); do
             if (sub(/\r$/, "", line))
                 cr="\r"
 
-            if (line == "diskId=\"" old "\"")
-                line="diskId=\"" new "\""
+            if (line == key "=\"" old "\"")
+                line=key "=\"" new "\""
 
             printf "%s%s\n", line, cr
         }
     ' "$CFG" > "$TMP" || {
         rm -f "$TMP"
-        echo "STOP: diskId-Aenderung fehlgeschlagen: $CFG"
+        echo "STOP: $CFG_KEY-Aenderung fehlgeschlagen: $CFG"
         rollback
         exit 1
     }
 
     BEFORE_NORMALIZED="$(
-        awk -v old="$OLD_ID" '
+        awk -v key="$CFG_KEY" -v old="$OLD_ID" '
             {
                 cr=""
                 line=$0
                 if (sub(/\r$/, "", line))
                     cr="\r"
-                if (line == "diskId=\"" old "\"")
-                    line="diskId=\"__IDENTITY__\""
+                if (line == key "=\"" old "\"")
+                    line=key "=\"__IDENTITY__\""
                 printf "%s%s\n", line, cr
             }
         ' "$CFG" | sha256sum | awk '{print $1}'
     )"
 
     AFTER_NORMALIZED="$(
-        awk -v new="$NEW_ID" '
+        awk -v key="$CFG_KEY" -v new="$NEW_ID" '
             {
                 cr=""
                 line=$0
                 if (sub(/\r$/, "", line))
                     cr="\r"
-                if (line == "diskId=\"" new "\"")
-                    line="diskId=\"__IDENTITY__\""
+                if (line == key "=\"" new "\"")
+                    line=key "=\"__IDENTITY__\""
                 printf "%s%s\n", line, cr
             }
         ' "$TMP" | sha256sum | awk '{print $1}'
@@ -319,7 +363,7 @@ for ((I=0; I<COUNT; I++)); do
 
     if [ "$BEFORE_NORMALIZED" != "$AFTER_NORMALIZED" ]; then
         rm -f "$TMP"
-        echo "STOP: Neben diskId wuerde weiterer Dateiinhalt geaendert: $CFG"
+        echo "STOP: Neben $CFG_KEY wuerde weiterer Dateiinhalt geaendert: $CFG"
         rollback
         exit 1
     fi
@@ -346,7 +390,7 @@ for ((I=0; I<COUNT; I++)); do
     )"
 
     CURRENT_ID="$(
-        awk -v key="diskId" '
+        awk -v key="$CFG_KEY" '
             index($0,key "=\"")==1 {
                 x=substr($0,length(key)+3)
                 sub(/\r$/, "", x)
@@ -371,10 +415,11 @@ echo "===== ABSCHLUSSPRUEFUNG ====="
 
 for ((I=0; I<COUNT; I++)); do
     CFG="${CFGS[$I]}"
+    CFG_KEY="${CFG_KEYS[$I]}"
     NEW_ID="${NEW_IDS[$I]}"
 
     CURRENT_ID="$(
-        awk -v key="diskId" '
+        awk -v key="$CFG_KEY" '
             index($0,key "=\"")==1 {
                 x=substr($0,length(key)+3)
                 sub(/\r$/, "", x)
@@ -386,7 +431,7 @@ for ((I=0; I<COUNT; I++)); do
     )"
 
     [ "$CURRENT_ID" = "$NEW_ID" ] || {
-        echo "STOP: Finale diskId-Pruefung fehlgeschlagen: $CFG"
+        echo "STOP: Finale $CFG_KEY-Pruefung fehlgeschlagen: $CFG"
         rollback
         exit 1
     }

@@ -85,101 +85,124 @@ for CFG in "$POOL_DIR"/*.cfg; do
 
     NAME="$(basename "$CFG" .cfg)"
     UUID="$(wert_cfg diskUUID "$CFG")"
-    ALT="$(wert_cfg diskId "$CFG")"
     FSTYPE="$(wert_cfg diskFsType "$CFG")"
 
     echo
     echo "===== POOL: $NAME ====="
     echo "Dateisystem: ${FSTYPE:-unbekannt}"
     echo "Pool-UUID:   ${UUID:-FEHLT}"
-    echo "Alte ID:     ${ALT:-FEHLT}"
 
-    if [ -z "$UUID" ] || [ -z "$ALT" ]; then
-        echo "STOP: Pool-Metadaten unvollstaendig."
+    if [ -z "$UUID" ]; then
+        echo "STOP: Pool-UUID fehlt."
         FEHLER=1
         continue
     fi
 
-    TREFFER=0
-    PARTITION=""
-    PARENT=""
+    DISKID_LIST="$(
+        awk '
+            {
+                line=$0
+                sub(/\r$/, "", line)
 
-    while IFS= read -r DEV; do
-        [ -n "$DEV" ] || continue
-        [ -b "/dev/$DEV" ] || continue
+                if (match(line, /^diskId(\.[0-9]+)?="/)) {
+                    pos=index(line, "=")
+                    key=substr(line, 1, pos-1)
+                    value=substr(line, pos+2)
+                    sub(/"$/, "", value)
 
-        DEVTYPE="$(lsblk -ndo TYPE "/dev/$DEV" 2>/dev/null | head -n1)"
-        [ "$DEVTYPE" = "part" ] || continue
-
-        DEVUUID="$(lsblk -ndo UUID "/dev/$DEV" 2>/dev/null | head -n1)"
-        [ "$DEVUUID" = "$UUID" ] || continue
-
-        DEV_PARENT="$(lsblk -ndo PKNAME "/dev/$DEV" 2>/dev/null | head -n1)"
-        [ -n "$DEV_PARENT" ] || continue
-        [ -b "/dev/$DEV_PARENT" ] || continue
-
-        TREFFER=$((TREFFER + 1))
-        PARTITION="$DEV"
-        PARENT="$DEV_PARENT"
-    done < <(lsblk -nrpo NAME | sed 's#^/dev/##')
-
-    if [ "$TREFFER" -ne 1 ]; then
-        echo "STOP: Pool-UUID wurde auf $TREFFER Partition(en) gefunden."
-        FEHLER=1
-        continue
-    fi
-
-    echo "Partition:   /dev/$PARTITION"
-    echo "Parent:      /dev/$PARENT"
-
-    IDENT="$(
-        timeout 20 /bin/bash "$SERIAL_ID" "/dev/$PARENT" 2>/dev/null
-    )" || {
-        echo "STOP: Hardware-Resolver fuer /dev/$PARENT fehlgeschlagen."
-        FEHLER=1
-        continue
-    }
-
-    SOURCE="$(
-        printf '%s\n' "$IDENT" |
-            awk -F= '$1=="IDENTITY_SOURCE"{print substr($0,index($0,"=")+1); exit}'
-    )"
-
-    SHORT="$(
-        printf '%s\n' "$IDENT" |
-            awk -F= '$1=="ID_SERIAL_SHORT"{print substr($0,index($0,"=")+1); exit}'
-    )"
-
-    NEU="$(
-        printf '%s\n' "$IDENT" |
-            awk -F= '$1=="ID_SERIAL"{print substr($0,index($0,"=")+1); exit}'
-    )"
-
-    if [ -z "$SOURCE" ] || [ -z "$SHORT" ] || [ -z "$NEU" ]; then
-        echo "STOP: Hardware-Identitaet unvollstaendig."
-        FEHLER=1
-        continue
-    fi
-
-    echo "Quelle:      $SOURCE"
-    echo "Serial:      $SHORT"
-    echo "Neue ID:     $NEU"
-
-    if [ "$ALT" = "$NEU" ]; then
-        echo "Status:      BEREITS_SAUBER"
-    else
-        echo "Status:      MIGRATION_ERFORDERLICH"
-
-        if [ -n "$PLAN_FILE" ]; then
-            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-                "$CFG" "$UUID" "$ALT" "$NEU" "$SOURCE" "$SHORT" "$PARENT" \
-                >> "$PLAN_FILE" || {
-                    echo "STOP: Pool-Migrationsplan konnte nicht geschrieben werden."
-                    exit 1
+                    if (value != "")
+                        print key "\t" value
                 }
-        fi
-        CHANGE_COUNT=$((CHANGE_COUNT + 1))
+            }
+        ' "$CFG"
+    )"
+
+    if [ -z "$DISKID_LIST" ]; then
+        echo "STOP: Keine Pool-diskId gefunden."
+        FEHLER=1
+        continue
     fi
+
+    while IFS="$(printf '\t')" read -r CFG_KEY ALT; do
+        [ -n "$CFG_KEY" ] || continue
+        [ -n "$ALT" ] || continue
+
+        echo
+        echo "Pool-Key:    $CFG_KEY"
+        echo "Alte ID:     $ALT"
+
+        TREFFER=0
+        MATCH_PARENT=""
+        MATCH_SOURCE=""
+        MATCH_SHORT=""
+        MATCH_NEW=""
+
+        while IFS= read -r DEV; do
+            [ -n "$DEV" ] || continue
+            [ -b "/dev/$DEV" ] || continue
+
+            DEVTYPE="$(lsblk -ndo TYPE "/dev/$DEV" 2>/dev/null | head -n1)"
+            [ "$DEVTYPE" = "disk" ] || continue
+
+            IDENT="$(
+                timeout 20 /bin/bash "$SERIAL_ID" "/dev/$DEV" 2>/dev/null
+            )" || continue
+
+            SOURCE="$(
+                printf '%s\n' "$IDENT" |
+                    awk -F= '$1=="IDENTITY_SOURCE"{print substr($0,index($0,"=")+1); exit}'
+            )"
+            SHORT="$(
+                printf '%s\n' "$IDENT" |
+                    awk -F= '$1=="ID_SERIAL_SHORT"{print substr($0,index($0,"=")+1); exit}'
+            )"
+            NEU="$(
+                printf '%s\n' "$IDENT" |
+                    awk -F= '$1=="ID_SERIAL"{print substr($0,index($0,"=")+1); exit}'
+            )"
+
+            [ -n "$SOURCE" ] && [ -n "$SHORT" ] && [ -n "$NEU" ] || continue
+
+            case "$ALT" in
+                *"$SHORT"*)
+                    TREFFER=$((TREFFER + 1))
+                    MATCH_PARENT="$DEV"
+                    MATCH_SOURCE="$SOURCE"
+                    MATCH_SHORT="$SHORT"
+                    MATCH_NEW="$NEU"
+                    ;;
+            esac
+        done < <(lsblk -dnro NAME)
+
+        if [ "$TREFFER" -ne 1 ]; then
+            echo "STOP: Alte ID wurde auf $TREFFER Hardware-Geraete aufgeloest."
+            FEHLER=1
+            continue
+        fi
+
+        echo "Parent:      /dev/$MATCH_PARENT"
+        echo "Quelle:      $MATCH_SOURCE"
+        echo "Serial:      $MATCH_SHORT"
+        echo "Neue ID:     $MATCH_NEW"
+
+        if [ "$ALT" = "$MATCH_NEW" ]; then
+            echo "Status:      BEREITS_SAUBER"
+        else
+            echo "Status:      MIGRATION_ERFORDERLICH"
+
+            if [ -n "$PLAN_FILE" ]; then
+                printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+                    "$CFG" "$UUID" "$CFG_KEY" "$ALT" "$MATCH_NEW" \
+                    "$MATCH_SOURCE" "$MATCH_SHORT" "$MATCH_PARENT" \
+                    >> "$PLAN_FILE" || {
+                        echo "STOP: Pool-Migrationsplan konnte nicht geschrieben werden."
+                        exit 1
+                    }
+            fi
+
+            CHANGE_COUNT=$((CHANGE_COUNT + 1))
+        fi
+    done <<< "$DISKID_LIST"
 done
 
 echo
