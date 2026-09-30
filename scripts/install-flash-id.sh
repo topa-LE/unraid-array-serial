@@ -34,13 +34,13 @@ do
     }
 done
 
-[ -x "$FLASH_ID" ] || {
-    echo "FEHLER: flash-id.sh ist nicht ausfuehrbar." >&2
+[ -f "$FLASH_ID" ] || {
+    echo "FEHLER: flash-id.sh fehlt." >&2
     exit 1
 }
 
-[ -x "$DETECT_TRANSPORT" ] || {
-    echo "FEHLER: detect-transport.sh ist nicht ausfuehrbar." >&2
+[ -f "$DETECT_TRANSPORT" ] || {
+    echo "FEHLER: detect-transport.sh fehlt." >&2
     exit 1
 }
 
