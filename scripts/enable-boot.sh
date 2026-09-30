@@ -109,16 +109,25 @@ awk '
     exit 1
 }
 
-cat >> "$TMP" <<EOF2
+REST="${TMP}.rest"
 
-# array-serial: persistenter Projektstart
-$INSTALL_AUFRUF || {
-    echo "array-serial: install-boot.sh fehlgeschlagen." >&2
-}
+{
+    echo '#!/bin/bash'
+    echo
+    echo '# array-serial: Boot-Diagnose so frueh wie moeglich starten'
+    echo "$BOOT_LOG_AUFRUF"
+    echo "$BOOT_CAPTURE_AUFRUF"
+    echo
+    echo '# array-serial: persistente Udev-Regeln vor Unraid/emhttp installieren'
+    echo "$INSTALL_AUFRUF || {"
+    echo '    echo "array-serial: install-boot.sh fehlgeschlagen." >&2'
+    echo '}'
+    echo
+} > "$REST"
 
-$BOOT_LOG_AUFRUF
-$BOOT_CAPTURE_AUFRUF
-EOF2
+awk 'NR == 1 && /^#!\/bin\/bash$/ { next } { print }' "$TMP" >> "$REST"
+
+mv -f "$REST" "$TMP"
 
 if ! bash -n "$TMP"; then
     rm -f "$TMP"
