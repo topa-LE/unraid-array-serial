@@ -54,13 +54,28 @@ cp -p "$GO" "$BACKUP" || {
 TMP="${GO}.array-serial.$$"
 
 awk '
-    /\/boot\/config\/custom\/array-serial\/install-udev-rule\.sh/ { next }
-    /\/boot\/config\/custom\/array-serial\/install-boot\.sh/      { next }
-    /\/boot\/config\/custom\/array-serial\/boot-log\.sh/         { next }
-    /\/boot\/config\/custom\/array-serial\/boot-capture\.sh/     { next }
+    # Alte und aktuelle Array-Serial-Bloecke vollständig entfernen.
+    # Auch mehrzeilige Fehlerbloecke mit "{ ... }" werden entfernt.
+    /\/boot\/config\/custom\/array-serial\/install-udev-rule\.sh/ {
+        if ($0 ~ /\{[[:space:]]*$/) skip_block=1
+        next
+    }
 
-    /^# array-serial: persistentes Boot-\/Kernel-Logging$/         { next }
-    /^# array-serial: persistenter Projektstart$/                 { next }
+    /\/boot\/config\/custom\/array-serial\/install-boot\.sh/ {
+        if ($0 ~ /\{[[:space:]]*$/) skip_block=1
+        next
+    }
+
+    skip_block {
+        if ($0 ~ /^[[:space:]]*\}[[:space:]]*$/) skip_block=0
+        next
+    }
+
+    /\/boot\/config\/custom\/array-serial\/boot-log\.sh/       { next }
+    /\/boot\/config\/custom\/array-serial\/boot-capture\.sh/   { next }
+
+    /^# array-serial: persistentes Boot-\/Kernel-Logging$/      { next }
+    /^# array-serial: persistenter Projektstart$/              { next }
 
     { print }
 ' "$GO" > "$TMP" || {
