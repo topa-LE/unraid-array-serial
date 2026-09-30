@@ -110,5 +110,16 @@ case "$TRANSPORT" in
 esac
 
 printf 'IDENTITY_SOURCE=%s\n' "$IDENTITY_SOURCE"
+
+# serial-id.sh liefert bei erfolgreicher eigener Hardware-Erkennung
+# einen vollständigen Metadatensatz. Damit hängt die Geräteidentität
+# nicht davon ab, ob ata_id bei einer USB-SATA-Bridge erfolgreich war.
+case "$IDENTITY_SOURCE" in
+    USB_SAT|ATA)
+        printf 'ID_BUS=ata\n'
+        printf 'ID_MODEL=%s\n' "${HARDWARE_ID%-${SERIENNUMMER}}"
+        ;;
+esac
+
 printf 'ID_SERIAL_SHORT=%s\n' "$SERIENNUMMER"
 printf 'ID_SERIAL=%s\n' "$KENNUNG"
