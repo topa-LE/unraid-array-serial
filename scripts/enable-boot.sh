@@ -54,6 +54,20 @@ cp -p "$GO" "$BACKUP" || {
 TMP="${GO}.array-serial.$$"
 
 awk '
+    # Alten vollständig markierten Array-Serial-Block entfernen.
+    # Fremde Hooks wie Dark Theme bleiben unangetastet.
+    /^# topa-LE Array Serial - START$/ {
+        legacy_marked_block=1
+        next
+    }
+
+    legacy_marked_block {
+        if ($0 ~ /^# topa-LE Array Serial - END$/) {
+            legacy_marked_block=0
+        }
+        next
+    }
+
     # Alte und aktuelle Array-Serial-Bloecke vollständig entfernen.
     # Auch mehrzeilige Fehlerbloecke mit "{ ... }" werden entfernt.
     /\/boot\/config\/custom\/array-serial\/install-udev-rule\.sh/ {
@@ -105,6 +119,12 @@ $INSTALL_AUFRUF || {
 $BOOT_LOG_AUFRUF
 $BOOT_CAPTURE_AUFRUF
 EOF2
+
+if ! bash -n "$TMP"; then
+    rm -f "$TMP"
+    echo "STOP: Neue $GO-Version hat einen Syntaxfehler. Original bleibt unverändert."
+    exit 1
+fi
 
 mv -f "$TMP" "$GO"
 sync
