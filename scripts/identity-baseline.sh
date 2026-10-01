@@ -84,6 +84,22 @@ baseline_laden() {
                 ;;
         esac
 
+        # Bash behandelt TAB bei IFS als Whitespace.
+        # Deshalb die TSV-Struktur vor dem read exakt pruefen.
+        TAB_ANZAHL="${ZEILE//[^$'\t']/}"
+
+        [ "${#TAB_ANZAHL}" -eq 2 ] || {
+            echo "STOP: Baseline-Zeile muss exakt drei TSV-Felder enthalten: Zeile $NR" >&2
+            return 1
+        }
+
+        case "$ZEILE" in
+            $'\t'*|*$'\t')
+                echo "STOP: Leeres Baseline-Feld: Zeile $NR" >&2
+                return 1
+                ;;
+        esac
+
         HW=""
         SOURCE=""
         ID=""
