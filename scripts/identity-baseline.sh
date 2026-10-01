@@ -117,7 +117,11 @@ baseline_laden() {
         }
 
         case "$SOURCE" in
-            ATA|NVME|USB_SAT|CACHE)
+            ATA|NVME|USB_SAT)
+                ;;
+            CACHE)
+                echo "STOP: CACHE darf nicht in eine persistente Baseline aufgenommen werden: Zeile $NR" >&2
+                return 1
                 ;;
             *)
                 echo "STOP: Ungueltige Identitaetsquelle '$SOURCE' in Zeile $NR" >&2
