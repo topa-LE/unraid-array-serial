@@ -23,6 +23,8 @@ REGEL_63_QUELLE="$QUELLE/63-array-serial-nvme-links.rules"
 REGEL_63_ZIEL="/etc/udev/rules.d/63-array-serial-nvme-links.rules"
 GENERATOR="$QUELLE/serial-id.sh"
 PARTITION_GENERATOR="$QUELLE/partition-id.sh"
+BASELINE_HELPER="$QUELLE/identity-baseline.sh"
+BASELINE_DATEI="$QUELLE/identity-baseline.tsv"
 TIMEOUT=20
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -33,6 +35,9 @@ fi
 for DATEI in \
     "$GENERATOR" \
     "$PARTITION_GENERATOR" \
+    "$BASELINE_HELPER" \
+    "$QUELLE/udev-authorized-id.sh" \
+    "$QUELLE/udev-authorized-partition-id.sh" \
     "$QUELLE/resolve-cached-id.sh" \
     "$QUELLE/format-disk-id.sh" \
     "$QUELLE/detect-transport.sh" \
@@ -49,6 +54,9 @@ done
 
 bash -n "$GENERATOR"
 bash -n "$PARTITION_GENERATOR"
+bash -n "$BASELINE_HELPER"
+bash -n "$QUELLE/udev-authorized-id.sh"
+bash -n "$QUELLE/udev-authorized-partition-id.sh"
 bash -n "$QUELLE/resolve-cached-id.sh"
 bash -n "$QUELLE/format-disk-id.sh"
 bash -n "$QUELLE/detect-transport.sh"
@@ -73,6 +81,22 @@ if udevadm help 2>&1 | grep -qE '(^|[[:space:]])verify([[:space:]]|$)'; then
 else
     echo "Udev-Regelpruefung: verify nicht verfuegbar – wird uebersprungen."
 fi
+
+[ -f "$BASELINE_DATEI" ] || {
+    echo "STOP: Persistente Identity-Baseline fehlt: $BASELINE_DATEI" >&2
+    exit 1
+}
+
+echo
+echo "===== PERSISTENTE IDENTITY-BASELINE PRUEFEN ====="
+
+if ! /bin/bash "$BASELINE_HELPER" --validate "$BASELINE_DATEI"; then
+    echo "STOP: Persistente Identity-Baseline ist ungueltig." >&2
+    exit 1
+fi
+
+echo "Identity-Baseline: GUELTIG"
+echo
 
 for PAAR in \
     "$REGEL_59_QUELLE|$REGEL_59_ZIEL" \
@@ -251,6 +275,16 @@ for SYSDEV in /sys/class/block/*; do
         exit 1
     fi
 
+    echo "PRUEFE BASELINE-AUTORISIERUNG: /dev/$NAME"
+
+    if ! /bin/bash "$BASELINE_HELPER" \
+        --authorize "$BASELINE_DATEI" "/dev/$NAME"
+    then
+        echo "AUSGELASSEN: /dev/$NAME ist nicht baseline-autorisiert."
+        continue
+    fi
+
+    echo "Baseline-Autorisierung: OK fuer /dev/$NAME"
     echo "INITIALISIERE: /dev/$NAME"
 
     if timeout "$TIMEOUT" \

@@ -7,4 +7,4 @@
 #
 # SATA/ATA und USB-SATA bleiben weiterhin in 59-array-serial.rules.
 
-ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="nvme[0-9]*n[0-9]*", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/serial-id.sh /dev/%k"
+ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="nvme[0-9]*n[0-9]*", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/udev-authorized-id.sh /dev/%k"

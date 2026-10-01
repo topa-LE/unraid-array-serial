@@ -22,7 +22,7 @@
 
 # Alle vollständigen sdX-Blockgeräte.
 ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="sd*[!0-9]", IMPORT{program}="/lib/udev/ata_id --export $devnode"
-ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="sd*[!0-9]", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/serial-id.sh /dev/%k"
+ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="sd*[!0-9]", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/udev-authorized-id.sh /dev/%k"
 
 # Alle vollständigen NVMe-Namespace-Blockgeräte.
-ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="nvme[0-9]*n[0-9]*", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/serial-id.sh /dev/%k"
+ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="nvme[0-9]*n[0-9]*", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/udev-authorized-id.sh /dev/%k"

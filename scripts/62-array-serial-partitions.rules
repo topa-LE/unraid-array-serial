@@ -17,4 +17,4 @@
 #   60-persistent-storage.rules
 #   61-array-serial-nvme.rules
 
-ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/partition-id.sh /dev/%k"
+ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/udev-authorized-partition-id.sh /dev/%k"

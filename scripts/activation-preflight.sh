@@ -600,7 +600,16 @@ if [ "$BASELINE_SCHREIBEN" -eq 1 ]; then
 
     /bin/bash "$BASE/identity-baseline.sh"         --validate "$TMP_BASELINE"
 
-    mv -f "$TMP_BASELINE" "$BASELINE_ZIEL"
+    if [ -e "$BASELINE_ZIEL" ]; then
+        echo "STOP: Baseline-Zieldatei existiert bereits: $BASELINE_ZIEL" >&2
+        exit 1
+    fi
+
+    if ! mv "$TMP_BASELINE" "$BASELINE_ZIEL"; then
+        echo "STOP: Baseline konnte nicht erstellt werden: $BASELINE_ZIEL" >&2
+        exit 1
+    fi
+
     sync
 
     trap - EXIT
