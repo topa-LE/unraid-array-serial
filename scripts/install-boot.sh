@@ -114,6 +114,28 @@ fi
 
 echo "Boot-Laufwerk wird ausgenommen: /dev/$BOOT_GERAET"
 
+# Sicherheitsgrenze fuer bestehende Unraid-Konfigurationen:
+#
+# Die Installation der Udev-Regeln allein ist ungefaehrlich. Eine gezielte
+# Neuerkennung kann jedoch die fuer Unraid sichtbare ID eines bereits
+# zugewiesenen Datentraegers aendern.
+#
+# Deshalb darf install-boot.sh keine bestehende gueltige Array-/Pool-
+# Konfiguration blind auf neue IDs umschalten. Die eigentliche persistente
+# Migration bleibt ein separater, ausdruecklich gestarteter Vorgang.
+DISKS_INI="/var/local/emhttp/disks.ini"
+
+declare -A UNRAID_GESPEICHERTE_IDS=()
+
+if [ -r "$DISKS_INI" ]; then
+    while IFS= read -r GESPEICHERTE_ID; do
+        [ -n "$GESPEICHERTE_ID" ] || continue
+        UNRAID_GESPEICHERTE_IDS["$GESPEICHERTE_ID"]=1
+    done < <(
+        sed -n 's/^idSb="\([^"]\+\)".*/\1/p' "$DISKS_INI"
+    )
+fi
+
 ANZAHL=0
 GEEIGNET=0
 GETRIGGERT=0
@@ -199,6 +221,36 @@ for SYSDEV in /sys/class/block/*; do
 
     echo "GEEIGNET: /dev/$NAME -> $ID_SERIAL"
     echo "ID-Quelle: $IDENTITY_SOURCE"
+
+    UDEV_ID_VORHER="$(
+        udevadm info --query=property --name="/dev/$NAME" 2>/dev/null |
+            sed -n 's/^ID_SERIAL=//p' |
+            head -n 1
+    )"
+
+    # Ist die aktuell sichtbare ID bereits in einer bestehenden Unraid-
+    # Konfiguration gespeichert und wuerde unsere Regel sie veraendern,
+    # darf der normale Installer diesen Wechsel nicht selbst ausloesen.
+    #
+    # Damit bleiben bestehende Array-/Pool-Zuweisungen unangetastet.
+    # Fuer eine gewollte Umstellung ist der separate Migrationsweg zustaendig.
+    if [ -n "$UDEV_ID_VORHER" ] &&
+       [ "$UDEV_ID_VORHER" != "$ID_SERIAL" ] &&
+       [ -n "${UNRAID_GESPEICHERTE_IDS[$UDEV_ID_VORHER]+x}" ]; then
+
+        echo
+        echo "STOP: Bestehende Unraid-Zuweisung wuerde ihre Geraetekennung aendern."
+        echo "Geraet:       /dev/$NAME"
+        echo "Gespeicherte: $UDEV_ID_VORHER"
+        echo "Neue ID:      $ID_SERIAL"
+        echo
+        echo "install-boot.sh fuehrt keine automatische Migration bestehender"
+        echo "Array-/Pool-Zuweisungen durch."
+        echo "Die Udev-Regeln wurden geladen, aber dieses Laufwerk wurde NICHT retriggert."
+        echo "Fuer die ID-Umstellung muss der separate sichere Migrationsweg verwendet werden."
+        exit 1
+    fi
+
     echo "INITIALISIERE: /dev/$NAME"
 
     if timeout "$TIMEOUT" \
