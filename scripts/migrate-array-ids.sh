@@ -187,7 +187,7 @@ while IFS='|' read -r SLOT SLOT_IDX SLOT_DEVICE SLOT_ID SLOT_ID_SB SLOT_STATUS; 
     [ -n "$SLOT" ] || continue
 
     case "$SLOT" in
-        parity|parity2|parity3|disk[0-9]*)
+        parity|parity2|disk[0-9]*)
             ;;
         *)
             continue
@@ -425,7 +425,7 @@ plan_laden() {
         }
 
         case "$SLOT" in
-            parity|parity2|parity3|disk[0-9]*)
+            parity|parity2|disk[0-9]*)
                 ;;
             *)
                 echo "STOP: Ungueltiger Slot im Migrationsplan: $SLOT"
@@ -605,7 +605,7 @@ plan_erzeugen() {
 
     for SLOT in "${!SLOT_IDX_AKTUELL[@]}"; do
         case "$SLOT" in
-            parity|parity2|parity3|disk[0-9]*)
+            parity|parity2|disk[0-9]*)
                 ;;
             *)
                 continue

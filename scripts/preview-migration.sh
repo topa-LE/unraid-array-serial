@@ -88,7 +88,7 @@ while IFS='|' read -r SLOT DEVICE SLOT_ID SLOT_ID_SB STATUS; do
     [ -n "$DEVICE" ] || continue
 
     case "$SLOT" in
-        parity|parity2|parity3|flash)
+        parity|parity2|flash)
             continue
             ;;
     esac
