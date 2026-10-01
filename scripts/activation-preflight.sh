@@ -36,6 +36,27 @@ POOL_DIR="/boot/config/pools"
 
 TIMEOUT=20
 
+BASELINE_SCHREIBEN=0
+BASELINE_ZIEL=""
+
+case "${1:-}" in
+    "")
+        ;;
+    --write-baseline)
+        [ "$#" -eq 2 ] || {
+            echo "STOP: Verwendung: $0 [--write-baseline DATEI]" >&2
+            exit 2
+        }
+
+        BASELINE_SCHREIBEN=1
+        BASELINE_ZIEL="$2"
+        ;;
+    *)
+        echo "STOP: Verwendung: $0 [--write-baseline DATEI]" >&2
+        exit 2
+        ;;
+esac
+
 [ "$(id -u)" -eq 0 ] || {
     echo "STOP: Root-Rechte erforderlich."
     exit 1
@@ -505,6 +526,7 @@ echo
 echo "===== BASELINE-PREVIEW ====="
 
 BASELINE_PREVIEW_ANZAHL=0
+BASELINE_INHALT=""
 
 for NAME in "${HW_DEVICES[@]}"; do
     [ -n "${ASSIGNED_DEVICE[$NAME]+x}" ] || continue
@@ -531,6 +553,14 @@ for NAME in "${HW_DEVICES[@]}"; do
         "$SOURCE" \
         "$PROJECT_ID"
 
+    ZEILE="$(printf '%s\t%s\t%s' "$SERIAL" "$SOURCE" "$PROJECT_ID")"
+
+    if [ -n "$BASELINE_INHALT" ]; then
+        BASELINE_INHALT+=$'\n'
+    fi
+
+    BASELINE_INHALT+="$ZEILE"
+
     BASELINE_PREVIEW_ANZAHL=$((BASELINE_PREVIEW_ANZAHL + 1))
 done
 
@@ -544,6 +574,41 @@ done
 echo
 echo "Baseline-Eintraege: $BASELINE_PREVIEW_ANZAHL"
 echo "BASELINE_PREVIEW_OK"
+
+if [ "$BASELINE_SCHREIBEN" -eq 1 ]; then
+    [ -n "$BASELINE_ZIEL" ] || {
+        echo "STOP: Baseline-Ziel fehlt."
+        exit 1
+    }
+
+    ZIEL_DIR="$(dirname -- "$BASELINE_ZIEL")"
+
+    [ -d "$ZIEL_DIR" ] || {
+        echo "STOP: Zielverzeichnis fuer Baseline fehlt: $ZIEL_DIR"
+        exit 1
+    }
+
+    TMP_BASELINE="${BASELINE_ZIEL}.tmp.$$"
+
+    cleanup_baseline_tmp() {
+        rm -f "$TMP_BASELINE"
+    }
+
+    trap cleanup_baseline_tmp EXIT
+
+    printf '%s\n' "$BASELINE_INHALT" > "$TMP_BASELINE"
+
+    /bin/bash "$BASE/identity-baseline.sh"         --validate "$TMP_BASELINE"
+
+    mv -f "$TMP_BASELINE" "$BASELINE_ZIEL"
+    sync
+
+    trap - EXIT
+
+    /bin/bash "$BASE/identity-baseline.sh"         --validate "$BASELINE_ZIEL"
+
+    echo "BASELINE_GESCHRIEBEN: $BASELINE_ZIEL"
+fi
 
 echo
 echo "ERGEBNIS: AKTIVIERUNG_PREFLIGHT_OK"
