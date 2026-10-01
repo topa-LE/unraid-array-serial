@@ -1,19 +1,28 @@
 #!/bin/bash
+#
 # topa-LE Unraid Array Serial
 #
 # Rein lesender Sicherheits-Preflight vor der persistenten Aktivierung.
 #
-# Aufgabe:
-# - bestehende Array-Zuweisungen aus dem laufenden Unraid erfassen
-# - persistente Pool-diskIds erfassen
-# - fuer vorhandene Hardware die zukuenftige Projekt-ID rein lesend berechnen
-# - erkennen, ob eine bereits gespeicherte Kennung geaendert werden muesste
+# Sicherheitsmodell:
+#
+# - Array-Zuweisungen werden aus dem laufenden Unraid gelesen.
+# - Pool-Zuweisungen werden aus /boot/config/pools/*.cfg gelesen.
+# - Jede gespeicherte Zuweisung muss genau einem physischen Laufwerk
+#   zugeordnet werden koennen.
+# - Die Zuordnung erfolgt ueber die echte Hardware-Seriennummer bzw.
+#   bereits vorhandene Projekt-ID.
+# - Eine persistente Baseline darf nur fuer bereits sauber migrierte
+#   Zuweisungen erzeugt werden.
+# - CACHE ist fuer eine persistente Baseline nicht zulaessig.
 #
 # Dieses Skript:
+#
 # - installiert keine Udev-Regel
 # - laedt keine Udev-Regel neu
 # - fuehrt keinen Udev-Trigger aus
 # - aendert keine Array-/Pool-Zuweisung
+# - schreibt keine Baseline
 # - schreibt keinen Freigabe-Marker
 
 set -euo pipefail
@@ -67,46 +76,82 @@ BOOT_GERAET="$(lsblk -r -n -s -o NAME "$BOOT_QUELLE" | tail -n 1)" || {
     exit 1
 }
 
-declare -A GESPEICHERTE_IDS=()
-declare -A GESPEICHERTE_QUELLE=()
+#
+# Gespeicherte Zuweisungen.
+#
+declare -A STORED_KIND=()
+declare -A STORED_LABEL=()
 
 ARRAY_ZUWEISUNGEN=0
 POOL_ZUWEISUNGEN=0
 
-# Array:
-# disks.ini enthaelt neben Parity/Data auch Cache/Pool und Flash.
-# Fuer den Array-Vertrag werden deshalb ausschliesslich belegte
-# Parity- und Data-Slots mit nichtleerer idSb uebernommen.
+gespeicherte_id_aufnehmen() {
+    local ID="$1"
+    local KIND="$2"
+    local LABEL="$3"
+
+    [ -n "$ID" ] || return 0
+
+    if [ -n "${STORED_KIND[$ID]+x}" ]; then
+        echo "STOP: Gespeicherte Kennung ist mehrfach vergeben:"
+        echo "ID:       $ID"
+        echo "Vorhanden: ${STORED_KIND[$ID]} / ${STORED_LABEL[$ID]}"
+        echo "Weiter:    $KIND / $LABEL"
+        exit 1
+    fi
+
+    STORED_KIND["$ID"]="$KIND"
+    STORED_LABEL["$ID"]="$LABEL"
+}
+
+#
+# Array aus disks.ini.
+#
 BLOCK=""
+
+array_block_auswerten() {
+    local BLOCK_IN="$1"
+    local NAME=""
+    local TYPE=""
+    local ID=""
+
+    [ -n "$BLOCK_IN" ] || return 0
+
+    NAME="$(
+        printf '%s\n' "$BLOCK_IN" |
+            sed -n '1s/^\["\([^"]*\)"\]$/\1/p'
+    )"
+
+    TYPE="$(
+        printf '%s\n' "$BLOCK_IN" |
+            sed -n 's/^type="\([^"]*\)".*/\1/p' |
+            head -n 1
+    )"
+
+    ID="$(
+        printf '%s\n' "$BLOCK_IN" |
+            sed -n 's/^idSb="\([^"]*\)".*/\1/p' |
+            head -n 1
+    )"
+
+    case "$TYPE" in
+        Parity|Data)
+            if [ -n "$ID" ]; then
+                gespeicherte_id_aufnehmen \
+                    "$ID" \
+                    "ARRAY" \
+                    "${NAME:-unbekannter-Slot}"
+
+                ARRAY_ZUWEISUNGEN=$((ARRAY_ZUWEISUNGEN + 1))
+            fi
+            ;;
+    esac
+}
+
 while IFS= read -r ZEILE || [ -n "$ZEILE" ]; do
     if [[ "$ZEILE" =~ ^\[.*\]$ ]]; then
         if [ -n "$BLOCK" ]; then
-            TYPE="$(
-                printf '%s\n' "$BLOCK" |
-                    sed -n 's/^type="\([^"]*\)".*/\1/p' |
-                    head -n 1
-            )"
-
-            ID="$(
-                printf '%s\n' "$BLOCK" |
-                    sed -n 's/^idSb="\([^"]*\)".*/\1/p' |
-                    head -n 1
-            )"
-
-            case "$TYPE" in
-                Parity|Data)
-                    if [ -n "$ID" ]; then
-                        if [ -n "${GESPEICHERTE_IDS[$ID]+x}" ]; then
-                            echo "STOP: Gespeicherte Array-ID ist nicht eindeutig: $ID"
-                            exit 1
-                        fi
-
-                        GESPEICHERTE_IDS["$ID"]=1
-                        GESPEICHERTE_QUELLE["$ID"]="ARRAY"
-                        ARRAY_ZUWEISUNGEN=$((ARRAY_ZUWEISUNGEN + 1))
-                    fi
-                    ;;
-            esac
+            array_block_auswerten "$BLOCK"
         fi
 
         BLOCK="$ZEILE"$'\n'
@@ -115,79 +160,68 @@ while IFS= read -r ZEILE || [ -n "$ZEILE" ]; do
     fi
 done < "$DISKS_INI"
 
-# Letzten disks.ini-Block auswerten.
 if [ -n "$BLOCK" ]; then
-    TYPE="$(
-        printf '%s\n' "$BLOCK" |
-            sed -n 's/^type="\([^"]*\)".*/\1/p' |
-            head -n 1
-    )"
-
-    ID="$(
-        printf '%s\n' "$BLOCK" |
-            sed -n 's/^idSb="\([^"]*\)".*/\1/p' |
-            head -n 1
-    )"
-
-    case "$TYPE" in
-        Parity|Data)
-            if [ -n "$ID" ]; then
-                if [ -n "${GESPEICHERTE_IDS[$ID]+x}" ]; then
-                    echo "STOP: Gespeicherte Array-ID ist nicht eindeutig: $ID"
-                    exit 1
-                fi
-
-                GESPEICHERTE_IDS["$ID"]=1
-                GESPEICHERTE_QUELLE["$ID"]="ARRAY"
-                ARRAY_ZUWEISUNGEN=$((ARRAY_ZUWEISUNGEN + 1))
-            fi
-            ;;
-    esac
+    array_block_auswerten "$BLOCK"
 fi
 
-# Pools:
-# Persistente Quelle sind ausschliesslich die diskId-Eintraege
-# unter /boot/config/pools/*.cfg. Runtime-Cache-Eintraege aus
-# disks.ini werden hier bewusst nicht nochmals gezaehlt.
+#
+# Pools aus persistenten Pool-CFGs.
+#
 if [ -d "$POOL_DIR" ]; then
     for CFG in "$POOL_DIR"/*.cfg; do
         [ -r "$CFG" ] || continue
 
-        while IFS= read -r ID; do
+        POOL_NAME="$(basename "$CFG" .cfg)"
+
+        while IFS=$'\t' read -r CFG_KEY ID; do
+            [ -n "$CFG_KEY" ] || continue
             [ -n "$ID" ] || continue
 
-            if [ -n "${GESPEICHERTE_IDS[$ID]+x}" ]; then
-                echo "STOP: Dieselbe Kennung ist gleichzeitig als Array- und Pool-ID gespeichert:"
-                echo "$ID"
-                exit 1
-            fi
+            gespeicherte_id_aufnehmen \
+                "$ID" \
+                "POOL" \
+                "$POOL_NAME/$CFG_KEY"
 
-            GESPEICHERTE_IDS["$ID"]=1
-            GESPEICHERTE_QUELLE["$ID"]="POOL"
             POOL_ZUWEISUNGEN=$((POOL_ZUWEISUNGEN + 1))
         done < <(
-            sed -n \
-                's/^diskId\(\.[0-9]\+\)\?="\([^"]\+\)".*/\2/p' \
-                "$CFG"
+            awk '
+                {
+                    line=$0
+                    sub(/\r$/, "", line)
+
+                    if (match(line, /^diskId(\.[0-9]+)?="/)) {
+                        pos=index(line, "=")
+                        key=substr(line, 1, pos-1)
+                        value=substr(line, pos+2)
+                        sub(/"$/, "", value)
+
+                        if (value != "")
+                            print key "\t" value
+                    }
+                }
+            ' "$CFG"
         )
     done
 fi
 
 GESAMT_ZUWEISUNGEN=$((ARRAY_ZUWEISUNGEN + POOL_ZUWEISUNGEN))
 
-echo "===== ARRAY SERIAL – AKTIVIERUNGS-PREFLIGHT ====="
-echo
-echo "Boot-Laufwerk ausgeschlossen: /dev/$BOOT_GERAET"
-echo "Array-Zuweisungen:            $ARRAY_ZUWEISUNGEN"
-echo "Pool-Zuweisungen:             $POOL_ZUWEISUNGEN"
-echo "Gespeicherte Zuweisungen:     $GESAMT_ZUWEISUNGEN"
-echo
+[ "$GESAMT_ZUWEISUNGEN" -gt 0 ] || {
+    echo "STOP: Keine gespeicherten Array-/Pool-Zuweisungen gefunden."
+    exit 1
+}
 
-FEHLER=0
-GEPRUEFT=0
-ZUORDNUNGEN=0
+#
+# Hardware einmal vollstaendig erfassen.
+#
+declare -a HW_DEVICES=()
+declare -A HW_SERIAL=()
+declare -A HW_SOURCE=()
+declare -A HW_PROJECT_ID=()
+declare -A HW_UDEV_ID=()
 
-declare -A GESEHENE_HW_SERIALS=()
+declare -A SEEN_SERIAL=()
+declare -A SEEN_PROJECT_ID=()
 
 for SYSDEV in /sys/class/block/*; do
     [ -e "$SYSDEV" ] || continue
@@ -212,40 +246,48 @@ for SYSDEV in /sys/class/block/*; do
 
     [ "$DEVTYPE" = "disk" ] || continue
 
-    KENNUNG="$(
+    set +e
+    IDENT="$(
         timeout "$TIMEOUT" \
             /bin/bash "$SERIAL_ID" "/dev/$NAME" \
             2>/dev/null
-    )" || {
-        echo "STOP: Sichere Kennung fuer /dev/$NAME nicht ermittelbar."
-        FEHLER=1
-        continue
-    }
-
-    NEUE_ID="$(
-        printf '%s\n' "$KENNUNG" |
-            sed -n 's/^ID_SERIAL=//p' |
-            head -n 1
     )"
+    RC=$?
+    set -e
 
-    HW_SERIAL="$(
-        printf '%s\n' "$KENNUNG" |
+    if [ "$RC" -eq 124 ]; then
+        echo "STOP: Hardware-Ermittlung fuer /dev/$NAME hat Timeout erreicht."
+        exit 1
+    fi
+
+    if [ "$RC" -ne 0 ]; then
+        echo "STOP: Hardware-Ermittlung fuer /dev/$NAME ist fehlgeschlagen."
+        exit 1
+    fi
+
+    SERIAL="$(
+        printf '%s\n' "$IDENT" |
             sed -n 's/^ID_SERIAL_SHORT=//p' |
             head -n 1
     )"
 
     SOURCE="$(
-        printf '%s\n' "$KENNUNG" |
+        printf '%s\n' "$IDENT" |
             sed -n 's/^IDENTITY_SOURCE=//p' |
             head -n 1
     )"
 
-    [ -n "$NEUE_ID" ] &&
-    [ -n "$HW_SERIAL" ] &&
-    [ -n "$SOURCE" ] || {
+    PROJECT_ID="$(
+        printf '%s\n' "$IDENT" |
+            sed -n 's/^ID_SERIAL=//p' |
+            head -n 1
+    )"
+
+    [ -n "$SERIAL" ] &&
+    [ -n "$SOURCE" ] &&
+    [ -n "$PROJECT_ID" ] || {
         echo "STOP: Unvollstaendige Hardware-Identitaet fuer /dev/$NAME."
-        FEHLER=1
-        continue
+        exit 1
     }
 
     case "$SOURCE" in
@@ -253,20 +295,23 @@ for SYSDEV in /sys/class/block/*; do
             ;;
         *)
             echo "STOP: Unzulaessige Identitaetsquelle fuer /dev/$NAME: $SOURCE"
-            FEHLER=1
-            continue
+            exit 1
             ;;
     esac
 
-    if [ -n "${GESEHENE_HW_SERIALS[$HW_SERIAL]+x}" ]; then
-        echo "STOP: Hardware-Seriennummer ist nicht eindeutig: $HW_SERIAL"
-        echo "Erstes Geraet: ${GESEHENE_HW_SERIALS[$HW_SERIAL]}"
+    if [ -n "${SEEN_SERIAL[$SERIAL]+x}" ]; then
+        echo "STOP: Hardware-Seriennummer ist nicht eindeutig: $SERIAL"
+        echo "Erstes Geraet: ${SEEN_SERIAL[$SERIAL]}"
         echo "Weiteres Geraet: /dev/$NAME"
-        FEHLER=1
-        continue
+        exit 1
     fi
 
-    GESEHENE_HW_SERIALS["$HW_SERIAL"]="/dev/$NAME"
+    if [ -n "${SEEN_PROJECT_ID[$PROJECT_ID]+x}" ]; then
+        echo "STOP: Projekt-ID ist nicht eindeutig: $PROJECT_ID"
+        echo "Erstes Geraet: ${SEEN_PROJECT_ID[$PROJECT_ID]}"
+        echo "Weiteres Geraet: /dev/$NAME"
+        exit 1
+    fi
 
     UDEV_ID="$(
         udevadm info --query=property --name="/dev/$NAME" 2>/dev/null |
@@ -274,138 +319,206 @@ for SYSDEV in /sys/class/block/*; do
             head -n 1
     )"
 
-    GEPRUEFT=$((GEPRUEFT + 1))
+    SEEN_SERIAL["$SERIAL"]="/dev/$NAME"
+    SEEN_PROJECT_ID["$PROJECT_ID"]="/dev/$NAME"
 
-    echo "----- /dev/$NAME -----"
-    echo "Quelle:       $SOURCE"
-    echo "HW-Serial:    $HW_SERIAL"
-    echo "Aktuelle ID:  ${UDEV_ID:-<leer>}"
-    echo "Projekt-ID:   $NEUE_ID"
+    HW_DEVICES+=("$NAME")
+    HW_SERIAL["$NAME"]="$SERIAL"
+    HW_SOURCE["$NAME"]="$SOURCE"
+    HW_PROJECT_ID["$NAME"]="$PROJECT_ID"
+    HW_UDEV_ID["$NAME"]="$UDEV_ID"
+done
 
-    if [ -n "$UDEV_ID" ] &&
-       [ -n "${GESPEICHERTE_IDS[$UDEV_ID]+x}" ]; then
+echo "===== ARRAY SERIAL – AKTIVIERUNGS-PREFLIGHT ====="
+echo
+echo "Boot-Laufwerk ausgeschlossen: /dev/$BOOT_GERAET"
+echo "Array-Zuweisungen:            $ARRAY_ZUWEISUNGEN"
+echo "Pool-Zuweisungen:             $POOL_ZUWEISUNGEN"
+echo "Gespeicherte Zuweisungen:     $GESAMT_ZUWEISUNGEN"
+echo "Hardware-Laufwerke geprueft:  ${#HW_DEVICES[@]}"
+echo
 
-        ZUORDNUNGEN=$((ZUORDNUNGEN + 1))
+#
+# Jede gespeicherte Zuweisung einzeln auf Hardware aufloesen.
+#
+declare -A ASSIGNED_DEVICE=()
+declare -A ASSIGNED_STORED_ID=()
 
-        echo "Gespeichert:  ${GESPEICHERTE_QUELLE[$UDEV_ID]}"
+declare -A BASELINE_HW=()
+declare -A BASELINE_ID=()
 
-        if [ "$UDEV_ID" != "$NEUE_ID" ]; then
-            echo "Status:       MIGRATION_ERFORDERLICH"
-            FEHLER=1
+ZUORDNUNGEN=0
+FEHLER=0
+
+for STORED_ID in "${!STORED_KIND[@]}"; do
+    TREFFER=0
+    MATCH_DEV=""
+
+    for NAME in "${HW_DEVICES[@]}"; do
+        SERIAL="${HW_SERIAL[$NAME]}"
+        PROJECT_ID="${HW_PROJECT_ID[$NAME]}"
+
+        MATCH=0
+
+        #
+        # Bereits sauber:
+        # gespeicherte ID entspricht exakt der Projekt-ID.
+        #
+        if [ "$STORED_ID" = "$PROJECT_ID" ]; then
+            MATCH=1
         else
-            echo "Status:       BEREITS_SAUBER"
+            #
+            # Bestehende alte Kennung:
+            # dieselbe konservative Seriennummern-Aufloesung wie im
+            # Array-Recovery-/Pool-Migrationspfad.
+            #
+            case "$STORED_ID" in
+                "$SERIAL"|*_"$SERIAL"|*-"$SERIAL")
+                    MATCH=1
+                    ;;
+            esac
         fi
-    elif [ -n "${GESPEICHERTE_IDS[$NEUE_ID]+x}" ]; then
 
-        ZUORDNUNGEN=$((ZUORDNUNGEN + 1))
+        if [ "$MATCH" -eq 1 ]; then
+            TREFFER=$((TREFFER + 1))
+            MATCH_DEV="$NAME"
+        fi
+    done
 
-        echo "Gespeichert:  ${GESPEICHERTE_QUELLE[$NEUE_ID]}"
-        echo "Status:       BEREITS_SAUBER"
-    else
-        echo "Gespeichert:  NEIN"
-        echo "Status:       NICHT_ZUGEWIESEN"
+    echo "------------------------------------------------------------"
+    echo "Gespeichert: $STORED_ID"
+    echo "Bereich:     ${STORED_KIND[$STORED_ID]}"
+    echo "Zuordnung:   ${STORED_LABEL[$STORED_ID]}"
+
+    if [ "$TREFFER" -ne 1 ]; then
+        echo "Status:      NICHT_EINDEUTIG"
+        echo "Treffer:     $TREFFER"
+        FEHLER=1
+        echo
+        continue
     fi
 
+    if [ -n "${ASSIGNED_DEVICE[$MATCH_DEV]+x}" ]; then
+        echo "Status:      MEHRFACH_ZUGEORDNET"
+        echo "Geraet:      /dev/$MATCH_DEV"
+        echo "Bereits fuer: ${ASSIGNED_STORED_ID[$MATCH_DEV]}"
+        FEHLER=1
+        echo
+        continue
+    fi
+
+    ASSIGNED_DEVICE["$MATCH_DEV"]=1
+    ASSIGNED_STORED_ID["$MATCH_DEV"]="$STORED_ID"
+
+    SERIAL="${HW_SERIAL[$MATCH_DEV]}"
+    SOURCE="${HW_SOURCE[$MATCH_DEV]}"
+    PROJECT_ID="${HW_PROJECT_ID[$MATCH_DEV]}"
+    UDEV_ID="${HW_UDEV_ID[$MATCH_DEV]}"
+
+    echo "Geraet:      /dev/$MATCH_DEV"
+    echo "Quelle:      $SOURCE"
+    echo "HW-Serial:   $SERIAL"
+    echo "Udev-ID:     ${UDEV_ID:-<leer>}"
+    echo "Projekt-ID:  $PROJECT_ID"
+
+    if [ "$STORED_ID" != "$PROJECT_ID" ]; then
+        echo "Status:      MIGRATION_ERFORDERLICH"
+        FEHLER=1
+        echo
+        continue
+    fi
+
+    if [ "$UDEV_ID" != "$PROJECT_ID" ]; then
+        echo "Status:      UDEV_NICHT_SAUBER"
+        FEHLER=1
+        echo
+        continue
+    fi
+
+    #
+    # CACHE darf nicht in eine persistente Baseline gelangen.
+    #
+    if [ "$SOURCE" = "CACHE" ]; then
+        echo "Status:      CACHE_NICHT_BASELINEFAEHIG"
+        FEHLER=1
+        echo
+        continue
+    fi
+
+    case "$SOURCE" in
+        ATA|NVME|USB_SAT)
+            ;;
+        *)
+            echo "Status:      UNGUELTIGE_BASELINE_QUELLE"
+            FEHLER=1
+            echo
+            continue
+            ;;
+    esac
+
+    if [ -n "${BASELINE_HW[$SERIAL]+x}" ]; then
+        echo "Status:      BASELINE_HW_DOPPELT"
+        FEHLER=1
+        echo
+        continue
+    fi
+
+    if [ -n "${BASELINE_ID[$PROJECT_ID]+x}" ]; then
+        echo "Status:      BASELINE_ID_DOPPELT"
+        FEHLER=1
+        echo
+        continue
+    fi
+
+    BASELINE_HW["$SERIAL"]="$MATCH_DEV"
+    BASELINE_ID["$PROJECT_ID"]="$MATCH_DEV"
+
+    ZUORDNUNGEN=$((ZUORDNUNGEN + 1))
+
+    echo "Status:      BEREITS_SAUBER"
     echo
 done
 
 echo "===== ZUSAMMENFASSUNG ====="
-echo "Hardware geprueft:        $GEPRUEFT"
 echo "Array-Zuweisungen:        $ARRAY_ZUWEISUNGEN"
 echo "Pool-Zuweisungen:         $POOL_ZUWEISUNGEN"
 echo "Gesamt gespeichert:       $GESAMT_ZUWEISUNGEN"
-echo "Zuweisungen zugeordnet:   $ZUORDNUNGEN"
+echo "Sauber autorisierbar:     $ZUORDNUNGEN"
 
 if [ "$ZUORDNUNGEN" -ne "$GESAMT_ZUWEISUNGEN" ]; then
-    echo
-    echo "STOP: Nicht alle gespeicherten Array-/Pool-Zuweisungen konnten"
-    echo "einem vorhandenen Laufwerk eindeutig zugeordnet werden."
-    echo "Zugeordnet:  $ZUORDNUNGEN"
-    echo "Gespeichert: $GESAMT_ZUWEISUNGEN"
     FEHLER=1
 fi
 
 if [ "$FEHLER" -ne 0 ]; then
     echo
     echo "ERGEBNIS: AKTIVIERUNG_GESPERRT"
-    echo "Bestehende Kennungen muessen vor der Boot-Aktivierung"
-    echo "ueber den jeweiligen sicheren Migrationsweg behandelt werden."
+    echo "Mindestens eine bestehende Array-/Pool-Zuweisung ist"
+    echo "nicht eindeutig oder benoetigt noch eine sichere Migration."
     exit 1
 fi
 
-echo
-echo "ERGEBNIS: AKTIVIERUNG_PREFLIGHT_OK"
-echo "Keine bestehende Array-/Pool-Zuweisung muss durch die Aktivierung"
-echo "ihre Kennung wechseln."
-
-
+#
+# Erst NACH erfolgreicher vollstaendiger Assignment-Pruefung
+# darf eine Baseline-Vorschau ausgegeben werden.
+#
 echo
 echo "===== BASELINE-PREVIEW ====="
 
-declare -A BASELINE_PREVIEW_HW=()
-declare -A BASELINE_PREVIEW_ID=()
-
 BASELINE_PREVIEW_ANZAHL=0
 
-for SYS in /sys/class/block/*; do
-    [ -e "$SYS" ] || continue
+for NAME in "${HW_DEVICES[@]}"; do
+    [ -n "${ASSIGNED_DEVICE[$NAME]+x}" ] || continue
 
-    NAME="${SYS##*/}"
-
-    if [[ "$NAME" =~ ^sd[a-z]+$ ]]; then
-        :
-    elif [[ "$NAME" =~ ^nvme[0-9]+n[0-9]+$ ]]; then
-        :
-    else
-        continue
-    fi
-
-    [ "$NAME" != "$BOOT_GERAET" ] || continue
-
-    DEVTYPE="$(
-        udevadm info --query=property --path="$SYS" 2>/dev/null |
-            sed -n 's/^DEVTYPE=//p' |
-            head -n1
-    )"
-
-    [ "$DEVTYPE" = "disk" ] || continue
-
-    GENERIERT="$(
-        timeout "$TIMEOUT" \
-            /bin/bash "$SERIAL_ID" "/dev/$NAME" \
-            2>/dev/null
-    )" || {
-        echo "STOP: Baseline-Preview kann Identitaet nicht ermitteln: /dev/$NAME"
-        exit 1
-    }
-
-    HW_SERIAL="$(
-        printf '%s\n' "$GENERIERT" |
-            sed -n 's/^ID_SERIAL_SHORT=//p' |
-            head -n1
-    )"
-
-    SOURCE="$(
-        printf '%s\n' "$GENERIERT" |
-            sed -n 's/^IDENTITY_SOURCE=//p' |
-            head -n1
-    )"
-
-    FUTURE_ID="$(
-        printf '%s\n' "$GENERIERT" |
-            sed -n 's/^ID_SERIAL=//p' |
-            head -n1
-    )"
-
-    [ -n "$HW_SERIAL" ] &&
-    [ -n "$SOURCE" ] &&
-    [ -n "$FUTURE_ID" ] || {
-        echo "STOP: Unvollstaendiges Baseline-Tupel: /dev/$NAME"
-        exit 1
-    }
+    SERIAL="${HW_SERIAL[$NAME]}"
+    SOURCE="${HW_SOURCE[$NAME]}"
+    PROJECT_ID="${HW_PROJECT_ID[$NAME]}"
 
     case "$SOURCE" in
-        ATA|NVME|USB_SAT|CACHE)
+        ATA|NVME|USB_SAT)
+            ;;
+        CACHE)
+            echo "STOP: CACHE darf nicht in eine persistente Baseline aufgenommen werden: /dev/$NAME"
+            exit 1
             ;;
         *)
             echo "STOP: Ungueltige Baseline-Quelle '$SOURCE': /dev/$NAME"
@@ -413,29 +526,10 @@ for SYS in /sys/class/block/*; do
             ;;
     esac
 
-    # Nur bereits sauber zugeordnete Array-/Pool-IDs duerfen
-    # in die Baseline aufgenommen werden.
-    if [ -z "${GESPEICHERTE_IDS[$FUTURE_ID]+x}" ]; then
-        continue
-    fi
-
-    [ -z "${BASELINE_PREVIEW_HW[$HW_SERIAL]+x}" ] || {
-        echo "STOP: HW_SERIAL mehrfach im Baseline-Preview: $HW_SERIAL"
-        exit 1
-    }
-
-    [ -z "${BASELINE_PREVIEW_ID[$FUTURE_ID]+x}" ] || {
-        echo "STOP: APPROVED_ID mehrfach im Baseline-Preview: $FUTURE_ID"
-        exit 1
-    }
-
-    BASELINE_PREVIEW_HW["$HW_SERIAL"]=1
-    BASELINE_PREVIEW_ID["$FUTURE_ID"]=1
-
     printf 'BASELINE\t%s\t%s\t%s\n' \
-        "$HW_SERIAL" \
+        "$SERIAL" \
         "$SOURCE" \
-        "$FUTURE_ID"
+        "$PROJECT_ID"
 
     BASELINE_PREVIEW_ANZAHL=$((BASELINE_PREVIEW_ANZAHL + 1))
 done
@@ -450,3 +544,8 @@ done
 echo
 echo "Baseline-Eintraege: $BASELINE_PREVIEW_ANZAHL"
 echo "BASELINE_PREVIEW_OK"
+
+echo
+echo "ERGEBNIS: AKTIVIERUNG_PREFLIGHT_OK"
+echo "Alle bestehenden Array-/Pool-Zuweisungen wurden eindeutig"
+echo "auf Hardware aufgeloest und sind baseline-faehig."
