@@ -7,7 +7,7 @@
 [![🇬🇧 English](https://img.shields.io/badge/lang-EN-red)](./docs/README-EN.md)
 ![Stars](https://img.shields.io/github/stars/topa-LE/unraid-array-serial)
 
-# 💾 Unraid Array Serial
+# 🗄️ Unraid Array Serial
 
 **Stabile, lesbare und reproduzierbare Laufwerksidentitäten für Unraid.**
 
