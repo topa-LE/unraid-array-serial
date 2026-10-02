@@ -11,7 +11,14 @@
 
 **Stabile, lesbare und reproduzierbare Laufwerksidentitäten für Unraid.**
 
-Unraid Array Serial erzeugt aus verifizierten Hardwaremerkmalen stabile Gerätekennungen für SATA/ATA-, USB-SATA- und NVMe-Laufwerke.
+> [!NOTE]
+> ### Über Unraid
+>
+> **[Unraid OS](https://unraid.net/)** ist ein flexibles Betriebssystem für selbst gehostete Server und Network-Attached Storage (NAS). Es ermöglicht unter anderem den Aufbau von Arrays und Pools mit unterschiedlichen Laufwerken und bietet darüber hinaus eine Plattform für Docker-Anwendungen und virtuelle Maschinen.
+>
+> **Unraid Serial** ergänzt diese Plattform um stabile, lesbare und reproduzierbare Geräteidentitäten für Array-Laufwerke, Pools und Boot-Geräte.
+
+Unraid Serial erzeugt aus verifizierten Hardwaremerkmalen stabile Gerätekennungen für SATA/ATA-, USB-SATA- und NVMe-Laufwerke.
 
 Die Kennungen werden über Udev in den laufenden Unraid-Betrieb integriert und durch eine servereigene **Identity-Baseline** gegen unbeabsichtigte Identitätsänderungen abgesichert.
 
