@@ -170,7 +170,7 @@ Verifizierter Zustand nach dem abschließenden Reboot:
 - `diskSize.1=9766436812`
 - `rdevSize.1=9766436812`
 - `diskState.1=7`
-- `diskId.1=WDC-WD101EFBX-68B0AN0-VH0ATR0M`
+- `diskId.1=WDC-WD101EFBX-68B0AN0-EXAMPLE1234`
 
 Neue persistente `super.dat`:
 
@@ -263,17 +263,17 @@ Test daher nicht abgeleitet werden.
 
 Der ORICO-Pool verwendet bereits persistent die bereinigte ID:
 
-`ORICO-128-0027611003057-USB3`
+`ORICO-128-EXAMPLE123456-USB3`
 
 Beim NVMe-Cache-Pool besteht dagegen noch eine Differenz:
 
 Unraid-Poolkonfiguration:
 
-`CT1000P3SSD8_231645F178D4`
+`CT1000P3SSD8_EXAMPLE123456`
 
 Projekt-Resolver:
 
-`CT1000P3SSD8-231645F178D4`
+`CT1000P3SSD8-EXAMPLE123456`
 
 Die physische NVMe wurde korrekt erkannt. Ihre ZFS-Partition
 `nvme0n1p1` blieb vorhanden.
