@@ -91,11 +91,20 @@ Ihre Zuordnung kann sich durch Bootreihenfolge, Controller, USB-Bridges oder Än
 
 Unraid Array Serial trennt deshalb konsequent zwischen:
 
-1. dem flüchtigen Linux-Gerätenamen,
-2. der ermittelten Hardwareidentität,
-3. der daraus erzeugten Projekt-ID,
-4. der von Unraid gespeicherten Gerätezuweisung und
-5. der explizit autorisierten servereigenen Identity-Baseline.
+> **1 · Linux-Gerätename**  
+> Flüchtige Bezeichnung des aktuell erkannten Blockgeräts, z. B. `/dev/sda`.
+>
+> **2 · Hardwareidentität**  
+> Die tatsächlich vom Gerät ermittelte Identität.
+>
+> **3 · Projekt-ID**  
+> Die daraus erzeugte stabile und lesbare Geräte-ID.
+>
+> **4 · Unraid-Zuweisung**  
+> Die von Unraid gespeicherte Zuordnung des Geräts.
+>
+> **5 · Identity-Baseline**  
+> Die explizit autorisierte, servereigene Identität.
 
 Eine Geräte-ID wird nicht allein deshalb persistent freigegeben, weil sie technisch erzeugt werden kann.
 
