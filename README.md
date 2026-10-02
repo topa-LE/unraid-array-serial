@@ -2,6 +2,7 @@
 ![Shell](https://img.shields.io/badge/Shell-Bash-blue?style=for-the-badge&logo=gnubash&logoColor=white)
 ![Architecture](https://img.shields.io/badge/ARCH-x86__64-blueviolet?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Reference%20Tested-brightgreen?style=for-the-badge)
+
 [![🇩🇪 Deutsch](https://img.shields.io/badge/lang-DE-blue)](./README.md)
 [![🇬🇧 English](https://img.shields.io/badge/lang-EN-red)](./docs/README-EN.md)
 ![Stars](https://img.shields.io/github/stars/topa-LE/unraid-array-serial)
