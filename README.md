@@ -56,13 +56,13 @@ Verifiziert wurden unter anderem:
 - Pool-ID-Migrationsmechanismen im Projekt
 - idempotenter Installations-Orchestrator
 
-Der zentrale Installations-Orchestrator ist:
+**👉 Der zentrale Installations-Orchestrator ist:**
 
 ```bash
 /boot/config/custom/array-serial/install.sh
 ```
 
-Ein erfolgreicher Lauf endet mit:
+**👉 Ein erfolgreicher Lauf endet mit:**
 
 ```text
 ===== INSTALLATION ERFOLGREICH =====
