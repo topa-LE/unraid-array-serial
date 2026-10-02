@@ -11,7 +11,6 @@
 
 **Stabile, lesbare und reproduzierbare Laufwerksidentitäten für Unraid.**
 
-> [!NOTE]
 > ### Über Unraid
 >
 > **[Unraid OS](https://unraid.net/)** ist ein flexibles Betriebssystem für selbst gehostete Server und Network-Attached Storage (NAS). Es ermöglicht unter anderem den Aufbau von Arrays und Pools mit unterschiedlichen Laufwerken und bietet darüber hinaus eine Plattform für Docker-Anwendungen und virtuelle Maschinen.
