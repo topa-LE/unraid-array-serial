@@ -1,0 +1,19 @@
+# topa-LE Unraid Array Serial
+#
+# Separate Udev-Regel fuer das physische Unraid-Boot-Laufwerk.
+#
+# Die systemd-Udev-Standardregeln erzeugen zuvor ihre native USB-ID.
+# Danach normalisiert flash-id.sh ausschliesslich die Identitaet des
+# physischen Laufwerks, auf dem /boot liegt.
+#
+# Der native systemd-Udev-Link bleibt aus Kompatibilitaetsgruenden
+# bestehen. Zusaetzlich wird ein sauberer stabiler Flash-by-id-Link
+# auf Basis der normalisierten ID_SERIAL erzeugt.
+#
+# Es werden ausschliesslich Udev-Eigenschaften und ein zusaetzlicher
+# /dev/disk/by-id-Symlink verwaltet.
+# Dateisystem, Label, UUID, PARTUUID, Hardware-Seriennummer und
+# Unraid-Lizenzdaten werden nicht veraendert.
+
+ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="sd*[!0-9]", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/flash-id.sh /dev/%k"
+ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="sd*[!0-9]", ENV{IDENTITY_SOURCE}=="FLASH", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/usb-$env{ID_SERIAL}"

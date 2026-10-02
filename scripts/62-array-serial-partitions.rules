@@ -1,0 +1,20 @@
+# topa-LE Unraid Array Serial
+#
+# Partition Identity Resolver
+#
+# Partitionen erhalten dieselbe stabile Hardware-ID wie ihr
+# physischer Whole-Disk-Parent.
+#
+# Die Parent-Ermittlung und Hardware-Identitaet erfolgen ausschliesslich
+# ueber partition-id.sh -> serial-id.sh.
+#
+# Keine feste Laufwerksanzahl.
+# Keine feste Partitionsnummer.
+# Keine Aenderung an Partitionstabelle, Dateisystem, UUID oder Daten.
+#
+# Diese Regel liegt bewusst nach:
+#   59-array-serial.rules
+#   60-persistent-storage.rules
+#   61-array-serial-nvme.rules
+
+ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/udev-authorized-partition-id.sh /dev/%k"

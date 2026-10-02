@@ -1,0 +1,10 @@
+# topa-LE Unraid Array Serial
+#
+# NVMe-Nachbearbeitung.
+# 60-persistent-storage.rules setzt fuer NVMe ID_SERIAL erneut mit
+# Unterstrich. Deshalb wird ausschliesslich NVMe hier nach Regel 60
+# nochmals durch den gemeinsamen Identity-Resolver verarbeitet.
+#
+# SATA/ATA und USB-SATA bleiben weiterhin in 59-array-serial.rules.
+
+ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="nvme[0-9]*n[0-9]*", IMPORT{program}="/bin/bash /boot/config/custom/array-serial/udev-authorized-id.sh /dev/%k"

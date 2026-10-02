@@ -1,12 +1,31 @@
 #!/bin/bash
 # topa-LE Unraid Array Serial
-# Installiert die Kennungsregel und erkennt geeignete Laufwerke gezielt neu.
-# Aendert keine Array-Zuordnungen.
+# Installiert die Kennungsregel und initialisiert geeignete Laufwerke
+# vor dem Start von Unraid/emhttp.
+#
+# Unterstuetzt dynamisch:
+# - beliebig viele vollständige sdX-Laufwerke
+# - beliebig viele NVMe-Namespace-Laufwerke
+#
+# Das physische Boot-Laufwerk wird immer ausgeschlossen.
+# Array-Zuordnungen werden nicht veraendert.
+
 set -euo pipefail
 
 QUELLE="/boot/config/custom/array-serial"
-REGEL_QUELLE="$QUELLE/59-topa-array-serial.rules"
-REGEL_ZIEL="/etc/udev/rules.d/59-topa-array-serial.rules"
+REGEL_59_QUELLE="$QUELLE/59-array-serial.rules"
+REGEL_59_ZIEL="/etc/udev/rules.d/59-array-serial.rules"
+REGEL_61_QUELLE="$QUELLE/61-array-serial-nvme.rules"
+REGEL_61_ZIEL="/etc/udev/rules.d/61-array-serial-nvme.rules"
+REGEL_62_QUELLE="$QUELLE/62-array-serial-partitions.rules"
+REGEL_62_ZIEL="/etc/udev/rules.d/62-array-serial-partitions.rules"
+REGEL_63_QUELLE="$QUELLE/63-array-serial-nvme-links.rules"
+REGEL_63_ZIEL="/etc/udev/rules.d/63-array-serial-nvme-links.rules"
+GENERATOR="$QUELLE/serial-id.sh"
+PARTITION_GENERATOR="$QUELLE/partition-id.sh"
+BASELINE_HELPER="$QUELLE/identity-baseline.sh"
+BASELINE_DATEI="$QUELLE/identity-baseline.tsv"
+TIMEOUT=20
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "STOP: Root-Rechte erforderlich."
@@ -14,9 +33,18 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 for DATEI in \
-    "$QUELLE/serial-id.sh" \
+    "$GENERATOR" \
+    "$PARTITION_GENERATOR" \
+    "$BASELINE_HELPER" \
+    "$QUELLE/udev-authorized-id.sh" \
+    "$QUELLE/udev-authorized-partition-id.sh" \
+    "$QUELLE/resolve-cached-id.sh" \
     "$QUELLE/format-disk-id.sh" \
-    "$REGEL_QUELLE"
+    "$QUELLE/detect-transport.sh" \
+    "$REGEL_59_QUELLE" \
+    "$REGEL_61_QUELLE" \
+    "$REGEL_62_QUELLE" \
+    "$REGEL_63_QUELLE"
 do
     if [ ! -f "$DATEI" ]; then
         echo "STOP: Datei fehlt: $DATEI"
@@ -24,32 +52,81 @@ do
     fi
 done
 
-bash -n "$QUELLE/serial-id.sh"
+bash -n "$GENERATOR"
+bash -n "$PARTITION_GENERATOR"
+bash -n "$BASELINE_HELPER"
+bash -n "$QUELLE/udev-authorized-id.sh"
+bash -n "$QUELLE/udev-authorized-partition-id.sh"
+bash -n "$QUELLE/resolve-cached-id.sh"
 bash -n "$QUELLE/format-disk-id.sh"
+bash -n "$QUELLE/detect-transport.sh"
 
-if [ -e "$REGEL_ZIEL" ]; then
-    if ! cmp -s "$REGEL_QUELLE" "$REGEL_ZIEL"; then
-        echo "STOP: Am Installationsziel liegt eine andere Regel."
-        exit 1
-    fi
-    echo "Kennungsregel ist bereits installiert."
-else
-    install -m 0644 "$REGEL_QUELLE" "$REGEL_ZIEL"
-    echo "Kennungsregel installiert."
+if ! command -v udevadm >/dev/null 2>&1; then
+    echo "STOP: udevadm fehlt."
+    exit 1
 fi
 
-udevadm control --reload
+# Neuere udev-Versionen koennen Regeldateien mit "udevadm verify"
+# vorab pruefen. Unraid-Versionen ohne dieses Unterkommando duerfen
+# deshalb nicht scheitern; die Regel wurde bereits im Repository
+# statisch validiert.
+if udevadm help 2>&1 | grep -qE '(^|[[:space:]])verify([[:space:]]|$)'; then
+    for REGEL in "$REGEL_59_QUELLE" "$REGEL_61_QUELLE" "$REGEL_62_QUELLE" "$REGEL_63_QUELLE"; do
+        if ! udevadm verify "$REGEL" >/dev/null 2>&1; then
+            echo "STOP: Udev-Regelpruefung fehlgeschlagen: $REGEL"
+            exit 1
+        fi
+    done
+    echo "Udev-Regelpruefung: OK."
+else
+    echo "Udev-Regelpruefung: verify nicht verfuegbar – wird uebersprungen."
+fi
 
+[ -f "$BASELINE_DATEI" ] || {
+    echo "STOP: Persistente Identity-Baseline fehlt: $BASELINE_DATEI" >&2
+    exit 1
+}
+
+echo
+echo "===== PERSISTENTE IDENTITY-BASELINE PRUEFEN ====="
+
+if ! /bin/bash "$BASELINE_HELPER" --validate "$BASELINE_DATEI"; then
+    echo "STOP: Persistente Identity-Baseline ist ungueltig." >&2
+    exit 1
+fi
+
+echo "Identity-Baseline: GUELTIG"
+echo
+
+for PAAR in \
+    "$REGEL_59_QUELLE|$REGEL_59_ZIEL" \
+    "$REGEL_61_QUELLE|$REGEL_61_ZIEL" \
+    "$REGEL_62_QUELLE|$REGEL_62_ZIEL" \
+    "$REGEL_63_QUELLE|$REGEL_63_ZIEL"
+do
+    QUELLDATEI="${PAAR%%|*}"
+    ZIELDATEI="${PAAR#*|}"
+
+    if [ -e "$ZIELDATEI" ] && cmp -s "$QUELLDATEI" "$ZIELDATEI"; then
+        echo "Kennungsregel bereits aktuell: $ZIELDATEI"
+    else
+        install -m 0644 "$QUELLDATEI" "$ZIELDATEI"
+        echo "Kennungsregel installiert/aktualisiert: $ZIELDATEI"
+    fi
+done
+
+udevadm control --reload
 echo "Udev-Regeln neu geladen."
 
-# Das physische Laufwerk ermitteln, auf dem /boot eingehangen ist.
-# Wenn das nicht eindeutig gelingt, keine Neuerkennung ausfuehren.
+# Physisches Laufwerk bestimmen, auf dem /boot liegt.
+# Bei nicht eindeutiger Erkennung wird aus Sicherheitsgruenden
+# keine Laufwerks-Neuerkennung gestartet.
 BOOT_QUELLE="$(findmnt -n -o SOURCE --target /boot)" || {
     echo "STOP: Boot-Quelle nicht ermittelbar."
     exit 1
 }
 
-BOOT_GERAET="$(lsblk -n -s -o NAME "$BOOT_QUELLE" | tail -n 1)" || {
+BOOT_GERAET="$(lsblk -r -n -s -o NAME "$BOOT_QUELLE" | tail -n 1)" || {
     echo "STOP: Boot-Laufwerk nicht ermittelbar."
     exit 1
 }
@@ -59,34 +136,235 @@ if [ -z "$BOOT_GERAET" ]; then
     exit 1
 fi
 
-echo "USB-Boot-Laufwerk wird ausgenommen: /dev/$BOOT_GERAET"
+echo "Boot-Laufwerk wird ausgenommen: /dev/$BOOT_GERAET"
 
-# Nur Laufwerke erneut erkennen, fuer die das Kennungsskript
-# erfolgreich eine neue ID_SERIAL ermittelt. Das Boot-Laufwerk
-# bleibt unabhaengig von seiner SMART-Erkennung unangetastet.
-for SYSDEV in /sys/class/block/sd*; do
+# Sicherheitsgrenze fuer bestehende Unraid-Konfigurationen:
+#
+# Die Installation der Udev-Regeln allein ist ungefaehrlich. Eine gezielte
+# Neuerkennung kann jedoch die fuer Unraid sichtbare ID eines bereits
+# zugewiesenen Datentraegers aendern.
+#
+# Deshalb darf install-boot.sh keine bestehende gueltige Array-/Pool-
+# Konfiguration blind auf neue IDs umschalten. Die eigentliche persistente
+# Migration bleibt ein separater, ausdruecklich gestarteter Vorgang.
+DISKS_INI="/var/local/emhttp/disks.ini"
+
+declare -A UNRAID_GESPEICHERTE_IDS=()
+
+if [ -r "$DISKS_INI" ]; then
+    while IFS= read -r GESPEICHERTE_ID; do
+        [ -n "$GESPEICHERTE_ID" ] || continue
+        UNRAID_GESPEICHERTE_IDS["$GESPEICHERTE_ID"]=1
+    done < <(
+        sed -n 's/^idSb="\([^"]\+\)".*/\1/p' "$DISKS_INI"
+    )
+fi
+
+ANZAHL=0
+GEEIGNET=0
+GETRIGGERT=0
+
+# Keine feste Geraeteliste und keine feste Laufwerksanzahl.
+# Es werden alle aktuell vorhandenen Blockgeraete betrachtet.
+for SYSDEV in /sys/class/block/*; do
     [ -e "$SYSDEV" ] || continue
 
     NAME="${SYSDEV##*/}"
-    [[ "$NAME" =~ ^sd[a-z]+$ ]] || continue
+
+    if [[ "$NAME" =~ ^sd[a-z]+$ ]]; then
+        :
+    elif [[ "$NAME" =~ ^nvme[0-9]+n[0-9]+$ ]]; then
+        :
+    else
+        continue
+    fi
+
+    # Partitionen und sonstige DEVTYPEs sicher ausschliessen.
+    DEVTYPE="$(udevadm info --query=property --path="$SYSDEV" 2>/dev/null |
+        sed -n 's/^DEVTYPE=//p' |
+        head -n 1)"
+
+    [ "$DEVTYPE" = "disk" ] || continue
+
+    ANZAHL=$((ANZAHL + 1))
 
     if [ "$NAME" = "$BOOT_GERAET" ]; then
+        echo "AUSGELASSEN: /dev/$NAME ist das Boot-Laufwerk."
         continue
     fi
 
-    if ! KENNUNG="$(bash "$QUELLE/serial-id.sh" "/dev/$NAME" 2>/dev/null)"; then
+    echo "PRUEFE: /dev/$NAME"
+
+    if ! KENNUNG="$(
+        timeout "$TIMEOUT" \
+            bash "$GENERATOR" "/dev/$NAME" \
+            2>/dev/null
+    )"; then
+        echo "AUSGELASSEN: /dev/$NAME liefert keine sichere eigene Kennung."
         continue
     fi
 
-    if ! grep -q "^ID_SERIAL=" <<< "$KENNUNG"; then
+    if ! grep -q '^ID_SERIAL=' <<< "$KENNUNG"; then
+        echo "AUSGELASSEN: /dev/$NAME liefert keine ID_SERIAL."
         continue
     fi
 
-    echo "Kennung fuer /dev/$NAME wird eingelesen."
-    udevadm trigger --action=add \
-        --sysname-match="$NAME" \
-        --subsystem-match=block
+    GEEIGNET=$((GEEIGNET + 1))
+
+    ID_SERIAL="$(
+        printf '%s\n' "$KENNUNG" |
+            sed -n 's/^ID_SERIAL=//p' |
+            head -n 1
+    )"
+
+    ID_SERIAL_SHORT_ERWARTET="$(
+        printf '%s\n' "$KENNUNG" |
+            sed -n 's/^ID_SERIAL_SHORT=//p' |
+            head -n 1
+    )"
+
+    IDENTITY_SOURCE="$(
+        printf '%s\n' "$KENNUNG" |
+            sed -n 's/^IDENTITY_SOURCE=//p' |
+            head -n 1
+    )"
+
+    [ -n "$ID_SERIAL_SHORT_ERWARTET" ] || {
+        echo "AUSGELASSEN: /dev/$NAME liefert keine Hardware-Seriennummer."
+        continue
+    }
+
+    case "$IDENTITY_SOURCE" in
+        ATA|NVME|USB_SAT|CACHE)
+            ;;
+        *)
+            echo "AUSGELASSEN: /dev/$NAME liefert keine gueltige Identitaetsquelle."
+            continue
+            ;;
+    esac
+
+    echo "GEEIGNET: /dev/$NAME -> $ID_SERIAL"
+    echo "ID-Quelle: $IDENTITY_SOURCE"
+
+    UDEV_ID_VORHER="$(
+        udevadm info --query=property --name="/dev/$NAME" 2>/dev/null |
+            sed -n 's/^ID_SERIAL=//p' |
+            head -n 1
+    )"
+
+    # Ist die aktuell sichtbare ID bereits in einer bestehenden Unraid-
+    # Konfiguration gespeichert und wuerde unsere Regel sie veraendern,
+    # darf der normale Installer diesen Wechsel nicht selbst ausloesen.
+    #
+    # Damit bleiben bestehende Array-/Pool-Zuweisungen unangetastet.
+    # Fuer eine gewollte Umstellung ist der separate Migrationsweg zustaendig.
+    if [ -n "$UDEV_ID_VORHER" ] &&
+       [ "$UDEV_ID_VORHER" != "$ID_SERIAL" ] &&
+       [ -n "${UNRAID_GESPEICHERTE_IDS[$UDEV_ID_VORHER]+x}" ]; then
+
+        echo
+        echo "STOP: Bestehende Unraid-Zuweisung wuerde ihre Geraetekennung aendern."
+        echo "Geraet:       /dev/$NAME"
+        echo "Gespeicherte: $UDEV_ID_VORHER"
+        echo "Neue ID:      $ID_SERIAL"
+        echo
+        echo "install-boot.sh fuehrt keine automatische Migration bestehender"
+        echo "Array-/Pool-Zuweisungen durch."
+        echo "Die Udev-Regeln wurden geladen, aber dieses Laufwerk wurde NICHT retriggert."
+        echo "Fuer die ID-Umstellung muss der separate sichere Migrationsweg verwendet werden."
+        exit 1
+    fi
+
+    echo "PRUEFE BASELINE-AUTORISIERUNG: /dev/$NAME"
+
+    if ! /bin/bash "$BASELINE_HELPER" \
+        --authorize "$BASELINE_DATEI" "/dev/$NAME"
+    then
+        echo "AUSGELASSEN: /dev/$NAME ist nicht baseline-autorisiert."
+        continue
+    fi
+
+    echo "Baseline-Autorisierung: OK fuer /dev/$NAME"
+    echo "INITIALISIERE: /dev/$NAME"
+
+    if timeout "$TIMEOUT" \
+        udevadm trigger \
+            --action=add \
+            --sysname-match="$NAME" \
+            --subsystem-match=block
+    then
+        :
+    else
+        echo "STOP: Udev-Trigger fuer /dev/$NAME fehlgeschlagen."
+        exit 1
+    fi
+
+    # Bereits vorhandene Partitionen erhalten nach dem Laden unserer
+    # Regeln ebenfalls ein gezieltes Event. Beim fruehen Boot koennen
+    # sie bereits vor Regel 62 mit den Standard-Udev-IDs angelegt worden sein.
+    while IFS= read -r PARTITION; do
+        [ -n "$PARTITION" ] || continue
+
+        echo "INITIALISIERE PARTITION: /dev/$PARTITION"
+
+        if ! timeout "$TIMEOUT" \
+            udevadm trigger \
+                --action=change \
+                --sysname-match="$PARTITION" \
+                --subsystem-match=block
+        then
+            echo "STOP: Udev-Trigger fuer /dev/$PARTITION fehlgeschlagen."
+            exit 1
+        fi
+    done < <(
+        lsblk -rno NAME,TYPE "/dev/$NAME" 2>/dev/null |
+            awk '$2 == "part" { print $1 }'
+    )
+
+    UDEV_ID=""
+    UDEV_SHORT=""
+
+    for VERSUCH in 1 2 3 4 5; do
+        UDEV_AUSGABE="$(
+            udevadm info --query=property --name="/dev/$NAME" 2>/dev/null || true
+        )"
+
+        UDEV_ID="$(
+            printf '%s\n' "$UDEV_AUSGABE" |
+                sed -n 's/^ID_SERIAL=//p' |
+                head -n 1
+        )"
+
+        UDEV_SHORT="$(
+            printf '%s\n' "$UDEV_AUSGABE" |
+                sed -n 's/^ID_SERIAL_SHORT=//p' |
+                head -n 1
+        )"
+
+        if [ "$UDEV_ID" = "$ID_SERIAL" ] &&
+           [ "$UDEV_SHORT" = "$ID_SERIAL_SHORT_ERWARTET" ]; then
+            break
+        fi
+
+        sleep 1
+    done
+
+    if [ "$UDEV_ID" != "$ID_SERIAL" ] ||
+       [ "$UDEV_SHORT" != "$ID_SERIAL_SHORT_ERWARTET" ]; then
+        echo "STOP: Udev-Neuerkennung fuer /dev/$NAME wurde nicht sauber uebernommen."
+        echo "Erwartete ID:        $ID_SERIAL"
+        echo "Aktuelle ID:         ${UDEV_ID:-<leer>}"
+        echo "Erwartete HW-Serial: $ID_SERIAL_SHORT_ERWARTET"
+        echo "Aktuelle HW-Serial:  ${UDEV_SHORT:-<leer>}"
+        exit 1
+    fi
+
+    GETRIGGERT=$((GETRIGGERT + 1))
+    echo "OK: /dev/$NAME wurde gezielt neu erkannt."
 done
 
-udevadm settle
+echo
+echo "Gefundene geeignete Blockgeraete: $ANZAHL"
+echo "Mit sicherer eigener Kennung:       $GEEIGNET"
+echo "Neu initialisiert:                  $GETRIGGERT"
 echo "Gezielte Neuerkennung abgeschlossen."
