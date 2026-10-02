@@ -303,3 +303,13 @@ Damit ist der vollständige Installations-, Boot- und Reboot-Pfad des aktuellen 
 Die Dokumente unter [`docs/`](docs/) beschreiben Architektur, Installation, Identity-Modell, Flash-ID, Migration, Recovery und Entwicklungshistorie im Detail.
 
 Die historische Datei [ARRAY-ID-MIGRATION-DEVELOPMENT.md](docs/ARRAY-ID-MIGRATION-DEVELOPMENT.md) bleibt bewusst erhalten. Sie dokumentiert auch frühere Untersuchungen und verworfene Ansätze und ist daher als Entwicklungsprotokoll zu lesen.
+
+---
+
+## Lizenz
+
+Dieses Projekt wird unter der **MIT-Lizenz** veröffentlicht.
+
+Copyright © 2026 **topa-LE**
+
+Siehe [`LICENSE`](./LICENSE) für den vollständigen Lizenztext.
