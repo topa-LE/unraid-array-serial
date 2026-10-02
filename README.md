@@ -9,7 +9,7 @@
 
 # 🗄️ Unraid Serial – Eindeutige Gerätezuordnung
 
-**Stabile, lesbare und reproduzierbare Laufwerksidentitäten für Unraid.**
+**Stabile, lesbare und reproduzierbare Laufwerksidentitäten für das NAS-Unraid-OS.**
 
 > ### Über Unraid
 >
