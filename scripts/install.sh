@@ -205,16 +205,24 @@ if [ "$MODUS" = "RECOVER_MIGRATION_BASELINE" ]; then
             ;;
     esac
 
+    if [ -e "$BASE/md-migration-resume.state" ]; then
+        echo "STOP: Baseline-Recovery ist bei vorhandenem MD-Migrations-Resume-State nicht erlaubt."
+        echo "$BASE/md-migration-resume.state"
+        exit 1
+    fi
+
     RECOVERY_PLAN="$RECOVERY_DIR/migration-plan.tsv"
     RECOVERY_PLAN_SHA="$RECOVERY_DIR/migration-plan.tsv.sha256"
     RECOVERY_MANIFEST="$RECOVERY_DIR/md-transaction.tsv"
     RECOVERY_MANIFEST_SHA="$RECOVERY_DIR/md-transaction.tsv.sha256"
+    RECOVERY_SUPER_SHA="$RECOVERY_DIR/super.dat.after-migration.sha256"
 
     for DATEI in \
         "$RECOVERY_PLAN" \
         "$RECOVERY_PLAN_SHA" \
         "$RECOVERY_MANIFEST" \
-        "$RECOVERY_MANIFEST_SHA"
+        "$RECOVERY_MANIFEST_SHA" \
+        "$RECOVERY_SUPER_SHA"
     do
         [ -r "$DATEI" ] || {
             echo "STOP: Recovery-Datei fehlt oder ist nicht lesbar:"
@@ -222,6 +230,11 @@ if [ "$MODUS" = "RECOVER_MIGRATION_BASELINE" ]; then
             exit 1
         }
     done
+
+    [ -r /boot/config/super.dat ] || {
+        echo "STOP: Aktive /boot/config/super.dat fehlt oder ist nicht lesbar."
+        exit 1
+    }
 
     echo "Pruefe gesicherten Migrationsplan ..."
     sha256sum -c "$RECOVERY_PLAN_SHA" >/dev/null || {
@@ -236,6 +249,54 @@ if [ "$MODUS" = "RECOVER_MIGRATION_BASELINE" ]; then
         exit 1
     }
     echo "Transaktionsmanifest-SHA256: OK"
+
+    echo "Pruefe aktive super.dat gegen abgeschlossene Phase B ..."
+
+    RECOVERY_SUPER_EXPECTED=""
+    RECOVERY_SUPER_PATH=""
+
+    read -r RECOVERY_SUPER_EXPECTED RECOVERY_SUPER_PATH < "$RECOVERY_SUPER_SHA" || {
+        echo "STOP: Gespeicherter super.dat-SHA256 konnte nicht gelesen werden."
+        exit 1
+    }
+
+    if [ "${#RECOVERY_SUPER_EXPECTED}" -ne 64 ]; then
+        echo "STOP: Gespeicherter super.dat-SHA256 hat keine gueltige Laenge."
+        exit 1
+    fi
+
+    case "$RECOVERY_SUPER_EXPECTED" in
+        *[!0-9a-fA-F]*)
+            echo "STOP: Gespeicherter super.dat-SHA256 ist ungueltig."
+            exit 1
+            ;;
+    esac
+
+    if [ "$RECOVERY_SUPER_PATH" != "/boot/config/super.dat" ]; then
+        echo "STOP: Gespeicherter super.dat-SHA256 verweist auf einen unerwarteten Pfad:"
+        echo "$RECOVERY_SUPER_PATH"
+        exit 1
+    fi
+
+    AKTUELLER_SUPER_HASH=""
+    AKTUELLER_SUPER_PFAD=""
+
+    read -r AKTUELLER_SUPER_HASH AKTUELLER_SUPER_PFAD < <(
+        sha256sum /boot/config/super.dat
+    ) || {
+        echo "STOP: SHA256 der aktiven super.dat konnte nicht ermittelt werden."
+        exit 1
+    }
+
+    if [ "$AKTUELLER_SUPER_HASH" != "$RECOVERY_SUPER_EXPECTED" ]; then
+        echo "STOP: Aktive super.dat gehoert nicht zum abgeschlossenen Migrationszustand."
+        echo "Erwartet: $RECOVERY_SUPER_EXPECTED"
+        echo "Aktuell:  $AKTUELLER_SUPER_HASH"
+        exit 1
+    fi
+
+    echo "Aktive super.dat SHA256: OK"
+    echo "MD-Migrations-Resume-State: NICHT VORHANDEN"
 
     echo
     echo "===== ARRAY-MIGRATION – IDENTITY-BASELINE WIEDERHERSTELLEN ====="
