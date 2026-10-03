@@ -61,6 +61,8 @@ for DATEI in \
     udev-authorized-partition-id.sh \
     migrate-array-ids.sh \
     md-migration-transaction.sh \
+    md-migration-array-state.sh \
+    md-migration-state-bridge.sh \
     md-migration-boot-resume.sh \
     59-array-serial.rules \
     61-array-serial-nvme.rules \
@@ -94,6 +96,8 @@ for DATEI in \
     udev-authorized-partition-id.sh \
     migrate-array-ids.sh \
     md-migration-transaction.sh \
+    md-migration-array-state.sh \
+    md-migration-state-bridge.sh \
     md-migration-boot-resume.sh
 do
     /bin/bash -n "$BASE/$DATEI" || {
@@ -367,6 +371,25 @@ if [ "$MODUS" = "MIGRATE_ARRAY" ]; then
 
     echo
     echo "===== ARRAY-MIGRATION – PHASE A ====="
+
+    echo
+    echo "===== ARRAY-MIGRATION – MD-AUSGANGSZUSTAND ====="
+
+    MD_STATE_DIR="$BASE/md-migration-state-$(date +%Y%m%d-%H%M%S)"
+
+    mkdir -p "$MD_STATE_DIR" || {
+        echo "STOP: Verzeichnis fuer MD-Ausgangszustand konnte nicht erzeugt werden."
+        exit 1
+    }
+
+    /bin/bash "$BASE/md-migration-state-bridge.sh" \
+        --capture "$MD_STATE_DIR" || {
+            echo "STOP: MD-Ausgangszustand konnte nicht persistent gesichert werden."
+            exit 1
+        }
+
+    echo "OK: MD-Ausgangszustand vor Phase A persistent gesichert."
+    echo "State-Verzeichnis: $MD_STATE_DIR"
 
     /bin/bash "$BASE/md-migration-transaction.sh" \
         --prepare-reboot "$MIGRATIONSPLAN" || {
