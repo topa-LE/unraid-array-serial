@@ -10,15 +10,28 @@ BASELINE="$BASE/identity-baseline.tsv"
 GO="/boot/config/go"
 
 MODUS="INSTALL"
+RECOVERY_DIR=""
 
 case "${1:-}" in
     "")
         ;;
     --migrate-array)
+        [ "$#" -eq 1 ] || {
+            echo "Verwendung: $0 [--migrate-array | --recover-migration-baseline TRANSAKTIONSVERZEICHNIS]"
+            exit 1
+        }
         MODUS="MIGRATE_ARRAY"
         ;;
+    --recover-migration-baseline)
+        [ "$#" -eq 2 ] || {
+            echo "Verwendung: $0 [--migrate-array | --recover-migration-baseline TRANSAKTIONSVERZEICHNIS]"
+            exit 1
+        }
+        MODUS="RECOVER_MIGRATION_BASELINE"
+        RECOVERY_DIR="$2"
+        ;;
     *)
-        echo "Verwendung: $0 [--migrate-array]"
+        echo "Verwendung: $0 [--migrate-array | --recover-migration-baseline TRANSAKTIONSVERZEICHNIS]"
         exit 1
         ;;
 esac
@@ -91,6 +104,156 @@ done
 
 echo "OK: Shell-Skripte syntaktisch sauber."
 
+migrationsbaseline_erzeugen() {
+    local PLAN="$1"
+    local BASELINE_TMP=""
+
+    [ -r "$PLAN" ] || {
+        echo "STOP: Migrationsplan nicht lesbar:"
+        echo "$PLAN"
+        return 1
+    }
+
+    if [ -e "$BASELINE" ]; then
+        echo "Vorhandene Identity-Baseline gefunden."
+        echo "Die vorhandene Baseline wird NICHT ersetzt."
+
+        /bin/bash "$BASE/identity-baseline.sh" \
+            --validate "$BASELINE" || {
+                echo "STOP: Vorhandene Identity-Baseline ist ungueltig."
+                return 1
+            }
+
+        echo "OK: Vorhandene Identity-Baseline gueltig."
+        return 0
+    fi
+
+    BASELINE_TMP="${BASELINE}.migration.$$"
+    : > "$BASELINE_TMP"
+
+    while IFS=$'\t' read -r NAME SLOT ALTE_ID HW SOURCE_ID SOURCE; do
+        if [ -z "$NAME" ] ||
+           [ -z "$SLOT" ] ||
+           [ -z "$ALTE_ID" ] ||
+           [ -z "$HW" ] ||
+           [ -z "$SOURCE_ID" ] ||
+           [ -z "$SOURCE" ]; then
+
+            rm -f "$BASELINE_TMP"
+            echo "STOP: Migrationsplan enthaelt eine unvollstaendige Zeile."
+            return 1
+        fi
+
+        case "$SOURCE" in
+            ATA|NVME|USB_SAT)
+                ;;
+            *)
+                rm -f "$BASELINE_TMP"
+                echo "STOP: Migrationsplan enthaelt keine persistente Identitaetsquelle:"
+                echo "$SOURCE"
+                return 1
+                ;;
+        esac
+
+        printf '%s\t%s\t%s\n' \
+            "$HW" "$SOURCE" "$SOURCE_ID" >> "$BASELINE_TMP"
+    done < "$PLAN"
+
+    if [ ! -s "$BASELINE_TMP" ]; then
+        rm -f "$BASELINE_TMP"
+        echo "STOP: Aus dem Migrationsplan konnte keine Baseline erzeugt werden."
+        return 1
+    fi
+
+    /bin/bash "$BASE/identity-baseline.sh" \
+        --validate "$BASELINE_TMP" || {
+            rm -f "$BASELINE_TMP"
+            echo "STOP: Aus dem Migrationsplan erzeugte Baseline ist ungueltig."
+            return 1
+        }
+
+    mv "$BASELINE_TMP" "$BASELINE"
+    chmod 600 "$BASELINE"
+    sync
+
+    /bin/bash "$BASE/identity-baseline.sh" \
+        --validate "$BASELINE" || {
+            echo "STOP: Persistierte Migrations-Baseline ist ungueltig."
+            return 1
+        }
+
+    echo "OK: Identity-Baseline sicher aus dem verifizierten Migrationsplan erzeugt."
+    echo "Baseline: $BASELINE"
+}
+
+if [ "$MODUS" = "RECOVER_MIGRATION_BASELINE" ]; then
+    echo
+    echo "===== ARRAY-MIGRATION – BASELINE-RECOVERY ====="
+
+    [ -d "$RECOVERY_DIR" ] || {
+        echo "STOP: Transaktionsverzeichnis fehlt:"
+        echo "$RECOVERY_DIR"
+        exit 1
+    }
+
+    case "$RECOVERY_DIR" in
+        "$BASE"/md-migration-*)
+            ;;
+        *)
+            echo "STOP: Recovery-Verzeichnis liegt nicht im erwarteten Array-Serial-Pfad."
+            exit 1
+            ;;
+    esac
+
+    RECOVERY_PLAN="$RECOVERY_DIR/migration-plan.tsv"
+    RECOVERY_PLAN_SHA="$RECOVERY_DIR/migration-plan.tsv.sha256"
+    RECOVERY_MANIFEST="$RECOVERY_DIR/md-transaction.tsv"
+    RECOVERY_MANIFEST_SHA="$RECOVERY_DIR/md-transaction.tsv.sha256"
+
+    for DATEI in \
+        "$RECOVERY_PLAN" \
+        "$RECOVERY_PLAN_SHA" \
+        "$RECOVERY_MANIFEST" \
+        "$RECOVERY_MANIFEST_SHA"
+    do
+        [ -r "$DATEI" ] || {
+            echo "STOP: Recovery-Datei fehlt oder ist nicht lesbar:"
+            echo "$DATEI"
+            exit 1
+        }
+    done
+
+    echo "Pruefe gesicherten Migrationsplan ..."
+    sha256sum -c "$RECOVERY_PLAN_SHA" >/dev/null || {
+        echo "STOP: SHA256-Pruefung des Migrationsplans fehlgeschlagen."
+        exit 1
+    }
+    echo "Migrationsplan-SHA256: OK"
+
+    echo "Pruefe gesichertes Transaktionsmanifest ..."
+    sha256sum -c "$RECOVERY_MANIFEST_SHA" >/dev/null || {
+        echo "STOP: SHA256-Pruefung des Transaktionsmanifests fehlgeschlagen."
+        exit 1
+    }
+    echo "Transaktionsmanifest-SHA256: OK"
+
+    echo
+    echo "===== ARRAY-MIGRATION – IDENTITY-BASELINE WIEDERHERSTELLEN ====="
+
+    migrationsbaseline_erzeugen "$RECOVERY_PLAN" || {
+        echo "STOP: Migrations-Baseline konnte nicht wiederhergestellt werden."
+        exit 1
+    }
+
+    echo
+    echo "===== BASELINE-RECOVERY ERFOLGREICH ====="
+    echo "Identity-Baseline: $BASELINE"
+    echo "Transaktionsverzeichnis: $RECOVERY_DIR"
+    echo
+    echo "BEREIT_FUER_NORMALE_INSTALLATION"
+    exit 0
+fi
+
 if [ "$MODUS" = "MIGRATE_ARRAY" ]; then
     echo
     echo "===== ARRAY-MIGRATION – PREFLIGHT UND PLAN ====="
@@ -117,76 +280,10 @@ if [ "$MODUS" = "MIGRATE_ARRAY" ]; then
     echo
     echo "===== ARRAY-MIGRATION – IDENTITY-BASELINE ====="
 
-    if [ -e "$BASELINE" ]; then
-        echo "Vorhandene Identity-Baseline gefunden."
-        echo "Die vorhandene Baseline wird NICHT ersetzt."
-
-        /bin/bash "$BASE/identity-baseline.sh" \
-            --validate "$BASELINE" || {
-                echo "STOP: Vorhandene Identity-Baseline ist ungueltig."
-                exit 1
-            }
-
-        echo "OK: Vorhandene Identity-Baseline gueltig."
-    else
-        BASELINE_TMP="${BASELINE}.migration.$$"
-
-        : > "$BASELINE_TMP"
-
-        while IFS=$'\t' read -r NAME SLOT ALTE_ID HW SOURCE_ID SOURCE; do
-            if [ -z "$NAME" ] ||
-               [ -z "$SLOT" ] ||
-               [ -z "$ALTE_ID" ] ||
-               [ -z "$HW" ] ||
-               [ -z "$SOURCE_ID" ] ||
-               [ -z "$SOURCE" ]; then
-
-                rm -f "$BASELINE_TMP"
-                echo "STOP: Migrationsplan enthaelt eine unvollstaendige Zeile."
-                exit 1
-            fi
-
-            case "$SOURCE" in
-                ATA|NVME|USB_SAT)
-                    ;;
-                *)
-                    rm -f "$BASELINE_TMP"
-                    echo "STOP: Migrationsplan enthaelt keine persistente Identitaetsquelle:"
-                    echo "$SOURCE"
-                    exit 1
-                    ;;
-            esac
-
-            printf '%s\t%s\t%s\n' \
-                "$HW" "$SOURCE" "$SOURCE_ID" >> "$BASELINE_TMP"
-        done < "$MIGRATIONSPLAN"
-
-        if [ ! -s "$BASELINE_TMP" ]; then
-            rm -f "$BASELINE_TMP"
-            echo "STOP: Aus dem Migrationsplan konnte keine Baseline erzeugt werden."
-            exit 1
-        fi
-
-        /bin/bash "$BASE/identity-baseline.sh" \
-            --validate "$BASELINE_TMP" || {
-                rm -f "$BASELINE_TMP"
-                echo "STOP: Aus dem Migrationsplan erzeugte Baseline ist ungueltig."
-                exit 1
-            }
-
-        mv "$BASELINE_TMP" "$BASELINE"
-        chmod 600 "$BASELINE"
-        sync
-
-        /bin/bash "$BASE/identity-baseline.sh" \
-            --validate "$BASELINE" || {
-                echo "STOP: Persistierte Migrations-Baseline ist ungueltig."
-                exit 1
-            }
-
-        echo "OK: Identity-Baseline sicher aus dem verifizierten Migrationsplan erzeugt."
-        echo "Baseline: $BASELINE"
-    fi
+    migrationsbaseline_erzeugen "$MIGRATIONSPLAN" || {
+        echo "STOP: Migrations-Baseline konnte nicht erzeugt werden."
+        exit 1
+    }
 
     echo
     echo "===== ARRAY-MIGRATION – BOOT-RESUME EINRICHTEN ====="
