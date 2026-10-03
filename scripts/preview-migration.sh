@@ -18,13 +18,11 @@
 # Die echte Hardware-Identitaet wird aus Modell und Seriennummer gebildet.
 # Die Transportinformation ist nur ein zusaetzlicher sichtbarer Hinweis.
 #
-# Beispiele:
+# Parity, Parity2 und Daten-Slots werden vor einer Migration gleichwertig
+# gegen ihre aktuelle physische Hardware geprueft.
 #
-#   WDC-WD40EFRX-68N32N0-WD-WCC7K5ZJKT08
-#   WDC-WD40EFRX-68N32N0-WD-WCC7K5ZJKT08-USB3
-#
-# Ein USB-Suffix entscheidet NICHT darueber, ob es dieselbe Platte ist.
-# Dafuer ist die echte Hardware-Seriennummer massgeblich.
+# Der Flash-Datentraeger besitzt einen separaten sicheren Identitaetsweg
+# und wird hier bewusst nicht als Array-Laufwerk behandelt.
 #
 # Dieses Skript veraendert NICHTS.
 
@@ -88,7 +86,7 @@ while IFS='|' read -r SLOT DEVICE SLOT_ID SLOT_ID_SB STATUS; do
     [ -n "$DEVICE" ] || continue
 
     case "$SLOT" in
-        parity|parity2|flash)
+        flash)
             continue
             ;;
     esac
@@ -306,8 +304,9 @@ if [ "$FEHLER" -ne 0 ]; then
 fi
 
 echo "ERGEBNIS: OK"
-echo "Alle geprueften bestehenden Slots stimmen mit ihren aktuellen"
-echo "Udev-Geraeten ueberein und besitzen eine eindeutige Hardware-Identitaet."
+echo "Alle geprueften bestehenden Array-Slots einschliesslich vorhandener"
+echo "Parity-Slots stimmen mit ihren aktuellen Udev-Geraeten ueberein"
+echo "und besitzen eine eindeutige Hardware-Identitaet."
 echo
 echo "Die Transportinformation ist nur Bestandteil der sichtbaren Kennung."
 echo "Die echte Seriennummer bleibt Grundlage der Hardware-Zuordnung."
