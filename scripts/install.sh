@@ -115,6 +115,80 @@ if [ "$MODUS" = "MIGRATE_ARRAY" ]; then
     fi
 
     echo
+    echo "===== ARRAY-MIGRATION – IDENTITY-BASELINE ====="
+
+    if [ -e "$BASELINE" ]; then
+        echo "Vorhandene Identity-Baseline gefunden."
+        echo "Die vorhandene Baseline wird NICHT ersetzt."
+
+        /bin/bash "$BASE/identity-baseline.sh" \
+            --validate "$BASELINE" || {
+                echo "STOP: Vorhandene Identity-Baseline ist ungueltig."
+                exit 1
+            }
+
+        echo "OK: Vorhandene Identity-Baseline gueltig."
+    else
+        BASELINE_TMP="${BASELINE}.migration.$$"
+
+        : > "$BASELINE_TMP"
+
+        while IFS=$'\t' read -r NAME SLOT ALTE_ID HW SOURCE_ID SOURCE; do
+            if [ -z "$NAME" ] ||
+               [ -z "$SLOT" ] ||
+               [ -z "$ALTE_ID" ] ||
+               [ -z "$HW" ] ||
+               [ -z "$SOURCE_ID" ] ||
+               [ -z "$SOURCE" ]; then
+
+                rm -f "$BASELINE_TMP"
+                echo "STOP: Migrationsplan enthaelt eine unvollstaendige Zeile."
+                exit 1
+            fi
+
+            case "$SOURCE" in
+                ATA|NVME|USB_SAT)
+                    ;;
+                *)
+                    rm -f "$BASELINE_TMP"
+                    echo "STOP: Migrationsplan enthaelt keine persistente Identitaetsquelle:"
+                    echo "$SOURCE"
+                    exit 1
+                    ;;
+            esac
+
+            printf '%s\t%s\t%s\n' \
+                "$HW" "$SOURCE" "$SOURCE_ID" >> "$BASELINE_TMP"
+        done < "$MIGRATIONSPLAN"
+
+        if [ ! -s "$BASELINE_TMP" ]; then
+            rm -f "$BASELINE_TMP"
+            echo "STOP: Aus dem Migrationsplan konnte keine Baseline erzeugt werden."
+            exit 1
+        fi
+
+        /bin/bash "$BASE/identity-baseline.sh" \
+            --validate "$BASELINE_TMP" || {
+                rm -f "$BASELINE_TMP"
+                echo "STOP: Aus dem Migrationsplan erzeugte Baseline ist ungueltig."
+                exit 1
+            }
+
+        mv "$BASELINE_TMP" "$BASELINE"
+        chmod 600 "$BASELINE"
+        sync
+
+        /bin/bash "$BASE/identity-baseline.sh" \
+            --validate "$BASELINE" || {
+                echo "STOP: Persistierte Migrations-Baseline ist ungueltig."
+                exit 1
+            }
+
+        echo "OK: Identity-Baseline sicher aus dem verifizierten Migrationsplan erzeugt."
+        echo "Baseline: $BASELINE"
+    fi
+
+    echo
     echo "===== ARRAY-MIGRATION – BOOT-RESUME EINRICHTEN ====="
 
     /bin/bash "$BASE/enable-boot.sh" || {
