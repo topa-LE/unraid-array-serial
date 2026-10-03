@@ -215,7 +215,32 @@ If the Activation Preflight reports:
 MIGRATION_ERFORDERLICH
 ```
 
-the designated migration path must be used first.
+the designated array migration path must be used first.
+
+On the Unraid server as `root`:
+
+~~~bash
+/bin/bash /boot/config/custom/array-serial/install.sh --migrate-array
+~~~
+
+Only if this run completes successfully and reports
+
+~~~text
+===== INSTALLATION ERFOLGREICH =====
+BEREIT_FUER_REBOOT
+~~~
+
+should Unraid be rebooted normally:
+
+~~~bash
+reboot
+~~~
+
+After the reboot, Phase B is continued automatically through the persistent
+resume hook. Internal migration scripts do not need to be invoked manually.
+
+The safe migration path then uses parity synchronization and does not mark
+existing parity data as valid without verification.
 
 A new baseline must not be used to bypass a stored Unraid assignment that has not yet been migrated.
 

@@ -46,6 +46,49 @@ A pool migration must not be mixed with the MD/array migration.
 
 ## Array Migration
 
+### Normal User Workflow
+
+To migrate an existing array, the user does not need to invoke internal
+migration scripts individually or manually edit Unraid configuration files.
+
+On the Unraid server, run the central installer as `root` with migration mode:
+
+~~~bash
+/bin/bash /boot/config/custom/array-serial/install.sh --migrate-array
+~~~
+
+The installer performs the preparatory Phase A. Only if the run completes
+successfully and ends with
+
+~~~text
+===== INSTALLATION ERFOLGREICH =====
+BEREIT_FUER_REBOOT
+~~~
+
+should Unraid be rebooted normally:
+
+~~~bash
+reboot
+~~~
+
+After the reboot, Phase B is continued automatically through the persistent
+resume hook. The user does not need to start Phase B manually or invoke any
+internal migration scripts.
+
+> [!IMPORTANT]
+> During a prepared migration, do not manually modify `super.dat`, the
+> identity baseline, the resume state, or the stored array assignments.
+
+### Parity During Migration
+
+The safe migration path does not mark existing parity data as valid without
+verification after rebuilding the persistent array assignments.
+
+Instead, the migration deliberately uses the safe parity synchronization
+policy. After the automatic continuation, parity synchronization must be
+allowed to complete.
+
+
 ### Background
 
 Early investigations showed that neither simply changing the visible runtime assignment nor directly replacing an ID field in `super.dat` at the binary level is sufficient as a generally safe migration mechanism.

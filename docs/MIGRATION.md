@@ -44,6 +44,52 @@ Eine Pool-Migration darf nicht mit der MD-/Array-Migration vermischt werden.
 
 ## Array-Migration
 
+### Normaler Benutzerablauf
+
+Für die Migration eines bestehenden Arrays muss der Benutzer keine internen
+Migrationsskripte einzeln aufrufen und keine Unraid-Konfigurationsdateien
+manuell bearbeiten.
+
+Auf dem Unraid-Server wird als `root` der zentrale Installer mit dem
+Migrationsmodus gestartet:
+
+~~~bash
+/bin/bash /boot/config/custom/array-serial/install.sh --migrate-array
+~~~
+
+Der Installer führt die vorbereitende Phase A aus. Nur wenn der Lauf
+erfolgreich abgeschlossen wurde und am Ende
+
+~~~text
+===== INSTALLATION ERFOLGREICH =====
+BEREIT_FUER_REBOOT
+~~~
+
+ausgegeben wird, wird Unraid normal neu gestartet:
+
+~~~bash
+reboot
+~~~
+
+Nach dem Neustart wird Phase B automatisch über den persistenten Resume-Hook
+fortgesetzt. Der Benutzer muss Phase B nicht manuell starten und keine
+internen Migrationsskripte aufrufen.
+
+> [!IMPORTANT]
+> Während einer vorbereiteten Migration dürfen `super.dat`, die
+> Identity-Baseline, der Resume-State und die gespeicherten
+> Array-Zuweisungen nicht manuell verändert werden.
+
+### Parität beim Migrationslauf
+
+Der sichere Migrationspfad markiert vorhandene Paritätsdaten nach dem
+Neuaufbau der persistenten Array-Zuordnung nicht ungeprüft als gültig.
+
+Stattdessen verwendet die Migration bewusst die sichere
+Paritäts-Synchronisation. Nach der automatischen Fortsetzung muss die
+Paritäts-Synchronisation vollständig durchlaufen.
+
+
 ### Hintergrund
 
 Frühe Untersuchungen zeigten, dass weder ein einfaches Ändern der sichtbaren Laufzeitzuweisung noch ein direktes binäres Ersetzen eines ID-Feldes in `super.dat` als allgemeiner sicherer Migrationsmechanismus ausreicht.

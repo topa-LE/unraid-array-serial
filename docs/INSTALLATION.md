@@ -217,7 +217,33 @@ Meldet der Activation-Preflight:
 MIGRATION_ERFORDERLICH
 ```
 
-muss zuerst der dafür vorgesehene Migrationspfad verwendet werden.
+muss zuerst der dafür vorgesehene Array-Migrationspfad verwendet werden.
+
+Auf dem Unraid-Server als `root`:
+
+~~~bash
+/bin/bash /boot/config/custom/array-serial/install.sh --migrate-array
+~~~
+
+Nur wenn dieser Lauf erfolgreich abgeschlossen wurde und
+
+~~~text
+===== INSTALLATION ERFOLGREICH =====
+BEREIT_FUER_REBOOT
+~~~
+
+ausgibt, wird Unraid normal neu gestartet:
+
+~~~bash
+reboot
+~~~
+
+Nach dem Neustart wird Phase B automatisch über den persistenten Resume-Hook
+fortgesetzt. Interne Migrationsskripte müssen nicht manuell aufgerufen werden.
+
+Der sichere Migrationspfad verwendet anschließend eine
+Paritäts-Synchronisation und markiert vorhandene Paritätsdaten nicht ungeprüft
+als gültig.
 
 Eine neue Baseline darf nicht dazu benutzt werden, eine noch nicht migrierte gespeicherte Unraid-Zuweisung zu übergehen.
 

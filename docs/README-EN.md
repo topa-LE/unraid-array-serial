@@ -286,13 +286,25 @@ Installing the project and migrating existing Unraid assignments are two differe
 
 If an existing stored Unraid ID does not already match the expected project ID, a new baseline must not simply be placed over it.
 
-In this case, the designated migration path must be used first.
+In this case, the designated array migration path must be used first:
+
+~~~bash
+/bin/bash /boot/config/custom/array-serial/install.sh --migrate-array
+~~~
+
+Only if the run completes successfully with `BEREIT_FUER_REBOOT` should Unraid be rebooted normally:
+
+~~~bash
+reboot
+~~~
+
+Phase B is continued automatically through the persistent resume hook after the reboot. Internal migration scripts do not need to be invoked manually.
 
 ➡️ [Migrating Existing Device IDs](MIGRATION-EN.md)
 
 Array migration uses a controlled multi-phase transaction path. Development testing confirmed persistent slot assignment after reboot.
 
-This explicitly does **not** mean that existing parity data may automatically be considered valid after every New-Config-like operation. In the documented parity test, parity reconstruction was started.
+Existing parity data is not marked as valid without verification. The safe migration path uses parity synchronization, which must be allowed to complete.
 
 ---
 
