@@ -2,6 +2,15 @@
 #
 # topa-LE Unraid Array Serial
 # Persistente Sicherung des MD-Ausgangszustands vor einer ID-Migration.
+#
+# Sicherheitsregel:
+# Eine ID-Migration darf aus MD-Laufzeitwerten allein niemals ableiten,
+# dass vorhandene Parity weiterhin gueltig ist.
+#
+# Deshalb ist die automatische Policy fuer die Migration:
+#   PARITY_POLICY=SYNC
+#
+# Die vorhandenen MD-Werte werden trotzdem vollstaendig dokumentiert.
 
 set -euo pipefail
 
@@ -42,6 +51,7 @@ state_schreiben() {
     local MD_RESYNC_ACTION=""
     local MD_RESYNC=""
     local MD_RESYNC_POS=""
+    local PARITY_POLICY="SYNC"
 
     [ -n "$ZIEL" ] ||
         fehler "Zieldatei fehlt."
@@ -105,7 +115,7 @@ state_schreiben() {
         fehler "Migration mit NEW-Datentraegern wird verweigert."
 
     {
-        printf 'VERSION=1\n'
+        printf 'VERSION=2\n'
         printf 'MD_STATE=%s\n' "$MD_STATE"
         printf 'MD_NUM_DISKS=%s\n' "$MD_NUM_DISKS"
         printf 'MD_NUM_DISABLED=%s\n' "$MD_NUM_DISABLED"
@@ -115,6 +125,7 @@ state_schreiben() {
         printf 'MD_RESYNC_ACTION=%s\n' "$MD_RESYNC_ACTION"
         printf 'MD_RESYNC=%s\n' "$MD_RESYNC"
         printf 'MD_RESYNC_POS=%s\n' "$MD_RESYNC_POS"
+        printf 'PARITY_POLICY=%s\n' "$PARITY_POLICY"
     } > "$TMP" ||
         fehler "Temporaerer MD-Ausgangszustand konnte nicht geschrieben werden."
 
@@ -125,6 +136,7 @@ state_schreiben() {
 
     echo "OK: MD-Ausgangszustand persistent gesichert."
     echo "Datei: $ZIEL"
+    echo "Parity-Policy: $PARITY_POLICY"
 }
 
 state_pruefen() {
@@ -139,6 +151,7 @@ state_pruefen() {
     local MD_RESYNC_ACTION=""
     local MD_RESYNC=""
     local MD_RESYNC_POS=""
+    local PARITY_POLICY=""
     local KEY=""
     local VALUE=""
 
@@ -157,6 +170,7 @@ state_pruefen() {
             MD_RESYNC_ACTION) MD_RESYNC_ACTION="$VALUE" ;;
             MD_RESYNC) MD_RESYNC="$VALUE" ;;
             MD_RESYNC_POS) MD_RESYNC_POS="$VALUE" ;;
+            PARITY_POLICY) PARITY_POLICY="$VALUE" ;;
             "")
                 ;;
             *)
@@ -165,7 +179,7 @@ state_pruefen() {
         esac
     done < "$DATEI"
 
-    [ "$VERSION" = "1" ] ||
+    [ "$VERSION" = "2" ] ||
         fehler "Nicht unterstuetzte State-Version: ${VERSION:-LEER}"
 
     [ "$MD_STATE" = "STOPPED" ] ||
@@ -196,11 +210,35 @@ state_pruefen() {
     [ "$MD_NUM_NEW" -eq 0 ] ||
         fehler "Gesicherter MD-Zustand enthaelt NEW-Datentraeger."
 
+    [ "$PARITY_POLICY" = "SYNC" ] ||
+        fehler "Ungueltige oder unsichere Parity-Policy: ${PARITY_POLICY:-LEER}"
+
     echo "OK: MD-Ausgangszustand verifiziert."
     echo "mdNumDisks=$MD_NUM_DISKS"
     echo "mdNumDisabled=$MD_NUM_DISABLED"
     echo "mdNumInvalid=$MD_NUM_INVALID"
     echo "mdResyncAction=$MD_RESYNC_ACTION"
+    echo "Parity-Policy=$PARITY_POLICY"
+}
+
+parity_policy_lesen() {
+    local DATEI="$1"
+    local KEY=""
+    local VALUE=""
+    local PARITY_POLICY=""
+
+    state_pruefen "$DATEI" >/dev/null
+
+    while IFS='=' read -r KEY VALUE; do
+        if [ "$KEY" = "PARITY_POLICY" ]; then
+            PARITY_POLICY="$VALUE"
+        fi
+    done < "$DATEI"
+
+    [ "$PARITY_POLICY" = "SYNC" ] ||
+        fehler "Keine sichere Parity-Policy im MD-Ausgangszustand."
+
+    printf '%s\n' "$PARITY_POLICY"
 }
 
 case "${1:-}" in
@@ -214,7 +252,12 @@ case "${1:-}" in
             fehler "Verwendung: $0 --validate DATEI"
         state_pruefen "$2"
         ;;
+    --parity-policy)
+        [ "$#" -eq 2 ] ||
+            fehler "Verwendung: $0 --parity-policy DATEI"
+        parity_policy_lesen "$2"
+        ;;
     *)
-        fehler "Verwendung: $0 --write DATEI | --validate DATEI"
+        fehler "Verwendung: $0 --write DATEI | --validate DATEI | --parity-policy DATEI"
         ;;
 esac

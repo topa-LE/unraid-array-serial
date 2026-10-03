@@ -1833,6 +1833,21 @@ EOF
     echo
     echo "===== PHASE B – NEW_ARRAY ====="
 
+    local MD_STATE_DATEI="$BACKUP_DIR/md-array-state"
+    local PARITY_POLICY=""
+
+    PARITY_POLICY="$(
+        /bin/bash "/boot/config/custom/array-serial/md-migration-array-state.sh" \
+            --parity-policy "$MD_STATE_DATEI"
+    )" ||
+        fehler "Parity-Policy konnte nicht sicher gelesen werden."
+
+    [ "$PARITY_POLICY" = "SYNC" ] ||
+        fehler "Nicht unterstuetzte Parity-Policy: ${PARITY_POLICY:-LEER}"
+
+    echo "Parity-Policy: $PARITY_POLICY"
+    echo "Aktion: NEW_ARRAY mit sicherer Parity-Synchronisation."
+
     md_befehl_schreiben "start NEW_ARRAY" ||
         fehler "Phase-B start NEW_ARRAY fehlgeschlagen."
 
