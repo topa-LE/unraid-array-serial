@@ -373,24 +373,6 @@ if [ "$MODUS" = "MIGRATE_ARRAY" ]; then
     echo "===== ARRAY-MIGRATION – PHASE A ====="
 
     echo
-    echo "===== ARRAY-MIGRATION – MD-AUSGANGSZUSTAND ====="
-
-    MD_STATE_DIR="$BASE/md-migration-state-$(date +%Y%m%d-%H%M%S)"
-
-    mkdir -p "$MD_STATE_DIR" || {
-        echo "STOP: Verzeichnis fuer MD-Ausgangszustand konnte nicht erzeugt werden."
-        exit 1
-    }
-
-    /bin/bash "$BASE/md-migration-state-bridge.sh" \
-        --capture "$MD_STATE_DIR" || {
-            echo "STOP: MD-Ausgangszustand konnte nicht persistent gesichert werden."
-            exit 1
-        }
-
-    echo "OK: MD-Ausgangszustand vor Phase A persistent gesichert."
-    echo "State-Verzeichnis: $MD_STATE_DIR"
-
     /bin/bash "$BASE/md-migration-transaction.sh" \
         --prepare-reboot "$MIGRATIONSPLAN" || {
             echo "STOP: MD-Migrations-Phase A fehlgeschlagen."

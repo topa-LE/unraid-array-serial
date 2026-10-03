@@ -1777,6 +1777,21 @@ EOF
     echo
     echo "===== PHASE B – KOMPLETTE VORPRUEFUNG ====="
 
+    echo
+    echo "===== PHASE B – MD-AUSGANGSZUSTAND ====="
+
+    [ -x "/boot/config/custom/array-serial/md-migration-state-bridge.sh" ] ||
+        fehler "MD-State-Bridge fehlt oder ist nicht ausfuehrbar."
+
+    /bin/bash "/boot/config/custom/array-serial/md-migration-state-bridge.sh" \
+        --validate "$BACKUP_DIR" ||
+        fehler "Transaktionsgebundener MD-Ausgangszustand ist ungueltig."
+
+    echo "OK: MD-Ausgangszustand gehoert verifiziert zu dieser Transaktion."
+
+    echo
+    echo "===== PHASE B – HARDWAREPRUEFUNG ====="
+
     # Diese Funktion löst ALLE belegten Slots gegen die aktuelle
     # Hardware neu auf und prüft u.a. den Partitionsstart.
     phase_b_manifest_pruefen "$MANIFEST" ||
@@ -2236,6 +2251,25 @@ if [ "${1:-}" = "--prepare-reboot" ]; then
     sync
 
     echo "OK: Original-super.dat bytegleich im Transaktionsbackup gesichert."
+
+    echo
+    echo "===== PHASE A – MD-AUSGANGSZUSTAND ====="
+
+    [ -x "/boot/config/custom/array-serial/md-migration-array-state.sh" ] ||
+        fehler "MD-State-Modul fehlt oder ist nicht ausfuehrbar."
+
+    [ -x "/boot/config/custom/array-serial/md-migration-state-bridge.sh" ] ||
+        fehler "MD-State-Bridge fehlt oder ist nicht ausfuehrbar."
+
+    /bin/bash "/boot/config/custom/array-serial/md-migration-state-bridge.sh" \
+        --capture "$BACKUP_DIR" ||
+        fehler "MD-Ausgangszustand konnte nicht transaktionsfest gesichert werden."
+
+    /bin/bash "/boot/config/custom/array-serial/md-migration-state-bridge.sh" \
+        --validate "$BACKUP_DIR" ||
+        fehler "Gesicherter MD-Ausgangszustand konnte nicht verifiziert werden."
+
+    echo "OK: MD-Ausgangszustand gehoert zur Migrationstransaktion."
 
     phase_a_vorbereiten "$PLAN" "$BACKUP_DIR" ||
         fehler "Phase A konnte nicht persistent vorbereitet werden."
