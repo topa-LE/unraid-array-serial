@@ -9,6 +9,20 @@ BASE="/boot/config/custom/array-serial"
 BASELINE="$BASE/identity-baseline.tsv"
 GO="/boot/config/go"
 
+MODUS="INSTALL"
+
+case "${1:-}" in
+    "")
+        ;;
+    --migrate-array)
+        MODUS="MIGRATE_ARRAY"
+        ;;
+    *)
+        echo "Verwendung: $0 [--migrate-array]"
+        exit 1
+        ;;
+esac
+
 echo "===== ARRAY-SERIAL – INSTALLATION / UPDATE ====="
 echo
 
@@ -32,6 +46,9 @@ for DATEI in \
     flash-id.sh \
     udev-authorized-id.sh \
     udev-authorized-partition-id.sh \
+    migrate-array-ids.sh \
+    md-migration-transaction.sh \
+    md-migration-boot-resume.sh \
     59-array-serial.rules \
     61-array-serial-nvme.rules \
     62-array-serial-partitions.rules \
@@ -61,7 +78,10 @@ for DATEI in \
     boot-capture.sh \
     flash-id.sh \
     udev-authorized-id.sh \
-    udev-authorized-partition-id.sh
+    udev-authorized-partition-id.sh \
+    migrate-array-ids.sh \
+    md-migration-transaction.sh \
+    md-migration-boot-resume.sh
 do
     /bin/bash -n "$BASE/$DATEI" || {
         echo "STOP: Syntaxfehler: $DATEI"
@@ -70,6 +90,77 @@ do
 done
 
 echo "OK: Shell-Skripte syntaktisch sauber."
+
+if [ "$MODUS" = "MIGRATE_ARRAY" ]; then
+    echo
+    echo "===== ARRAY-MIGRATION – PREFLIGHT UND PLAN ====="
+
+    if [ -e "$BASE/md-migration-resume.state" ]; then
+        echo "STOP: Es existiert bereits ein MD-Migrations-Resume-State."
+        echo "$BASE/md-migration-resume.state"
+        exit 1
+    fi
+
+    /bin/bash "$BASE/migrate-array-ids.sh" || {
+        echo "STOP: Array-Migrations-Preflight fehlgeschlagen."
+        exit 1
+    }
+
+    MIGRATIONSPLAN="$BASE/migration-plan.tsv"
+
+    if [ ! -s "$MIGRATIONSPLAN" ]; then
+        echo "STOP: Migrationsplan fehlt oder ist leer:"
+        echo "$MIGRATIONSPLAN"
+        exit 1
+    fi
+
+    echo
+    echo "===== ARRAY-MIGRATION – BOOT-RESUME EINRICHTEN ====="
+
+    /bin/bash "$BASE/enable-boot.sh" || {
+        echo "STOP: Boot-Resume konnte nicht eingerichtet werden."
+        exit 1
+    }
+
+    RESUME_HOOK_ANZAHL="$(
+        grep -Fc "$BASE/md-migration-boot-resume.sh" "$GO" || true
+    )"
+
+    if [ "$RESUME_HOOK_ANZAHL" -ne 1 ]; then
+        echo "STOP: MD-Migrations-Resume-Hook ist nicht eindeutig."
+        exit 1
+    fi
+
+    echo "OK: MD-Migrations-Resume-Hook genau einmal vorhanden."
+
+    echo
+    echo "===== ARRAY-MIGRATION – PHASE A ====="
+
+    /bin/bash "$BASE/md-migration-transaction.sh" \
+        --prepare-reboot "$MIGRATIONSPLAN" || {
+            echo "STOP: MD-Migrations-Phase A fehlgeschlagen."
+            exit 1
+        }
+
+    if [ ! -r "$BASE/md-migration-resume.state" ]; then
+        echo "STOP: Phase A hat keinen lesbaren Resume-State erzeugt."
+        exit 1
+    fi
+
+    if [ -e "/boot/config/super.dat" ]; then
+        echo "STOP: Phase A meldete Erfolg, aber super.dat ist noch aktiv."
+        exit 1
+    fi
+
+    echo
+    echo "===== ARRAY-MIGRATION – PHASE A ERFOLGREICH ====="
+    echo "Resume-State: $BASE/md-migration-resume.state"
+    echo "Boot-Resume:  OK"
+    echo "super.dat:    fuer Phase B geparkt"
+    echo
+    echo "BEREIT_FUER_MIGRATIONS_REBOOT"
+    exit 0
+fi
 
 echo
 echo "===== 3. SERVER-IDENTITAET / BASELINE ====="
@@ -115,21 +206,25 @@ fi
 BOOT_LOG_ANZAHL="$(grep -Fc "$BASE/boot-log.sh" "$GO" || true)"
 BOOT_CAPTURE_ANZAHL="$(grep -Fc "$BASE/boot-capture.sh" "$GO" || true)"
 INSTALL_BOOT_ANZAHL="$(grep -Fc "$BASE/install-boot.sh" "$GO" || true)"
+RESUME_BOOT_ANZAHL="$(grep -Fc "$BASE/md-migration-boot-resume.sh" "$GO" || true)"
 
-echo "boot-log.sh     = $BOOT_LOG_ANZAHL"
-echo "boot-capture.sh = $BOOT_CAPTURE_ANZAHL"
-echo "install-boot.sh = $INSTALL_BOOT_ANZAHL"
+echo "boot-log.sh                 = $BOOT_LOG_ANZAHL"
+echo "boot-capture.sh             = $BOOT_CAPTURE_ANZAHL"
+echo "install-boot.sh             = $INSTALL_BOOT_ANZAHL"
+echo "md-migration-boot-resume.sh = $RESUME_BOOT_ANZAHL"
 
 if [ "$BOOT_LOG_ANZAHL" -gt 1 ] ||
    [ "$BOOT_CAPTURE_ANZAHL" -gt 1 ] ||
-   [ "$INSTALL_BOOT_ANZAHL" -gt 1 ]; then
+   [ "$INSTALL_BOOT_ANZAHL" -gt 1 ] ||
+   [ "$RESUME_BOOT_ANZAHL" -gt 1 ]; then
     echo "STOP: Kern-Boot-Hooks sind mehrfach vorhanden."
     exit 1
 fi
 
 if [ "$BOOT_LOG_ANZAHL" -eq 1 ] &&
    [ "$BOOT_CAPTURE_ANZAHL" -eq 1 ] &&
-   [ "$INSTALL_BOOT_ANZAHL" -eq 1 ]; then
+   [ "$INSTALL_BOOT_ANZAHL" -eq 1 ] &&
+   [ "$RESUME_BOOT_ANZAHL" -eq 1 ]; then
 
     echo "OK: Kern-Boot-Hooks bereits vollstaendig vorhanden."
     echo "enable-boot.sh wird NICHT erneut ausgefuehrt."
@@ -145,10 +240,12 @@ else
     BOOT_LOG_ANZAHL="$(grep -Fc "$BASE/boot-log.sh" "$GO" || true)"
     BOOT_CAPTURE_ANZAHL="$(grep -Fc "$BASE/boot-capture.sh" "$GO" || true)"
     INSTALL_BOOT_ANZAHL="$(grep -Fc "$BASE/install-boot.sh" "$GO" || true)"
+    RESUME_BOOT_ANZAHL="$(grep -Fc "$BASE/md-migration-boot-resume.sh" "$GO" || true)"
 
     if [ "$BOOT_LOG_ANZAHL" -ne 1 ] ||
        [ "$BOOT_CAPTURE_ANZAHL" -ne 1 ] ||
-       [ "$INSTALL_BOOT_ANZAHL" -ne 1 ]; then
+       [ "$INSTALL_BOOT_ANZAHL" -ne 1 ] ||
+       [ "$RESUME_BOOT_ANZAHL" -ne 1 ]; then
         echo "STOP: Kern-Boot-Hooks nach enable-boot.sh nicht eindeutig."
         exit 1
     fi
@@ -275,6 +372,7 @@ for AUFRUF in \
     "$BASE/boot-log.sh" \
     "$BASE/boot-capture.sh" \
     "$BASE/install-boot.sh" \
+    "$BASE/md-migration-boot-resume.sh" \
     "$BASE/install-flash-id.sh"
 do
     ANZAHL="$(grep -Fc "$AUFRUF" "$GO" || true)"
