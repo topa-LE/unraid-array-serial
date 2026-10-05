@@ -64,6 +64,9 @@ for DATEI in \
     md-migration-array-state.sh \
     md-migration-state-bridge.sh \
     md-migration-boot-resume.sh \
+    migrate-pool-ids.sh \
+    pool-migration-transaction.sh \
+    pool-migration-baseline.sh \
     59-array-serial.rules \
     61-array-serial-nvme.rules \
     62-array-serial-partitions.rules \
@@ -98,7 +101,10 @@ for DATEI in \
     md-migration-transaction.sh \
     md-migration-array-state.sh \
     md-migration-state-bridge.sh \
-    md-migration-boot-resume.sh
+    md-migration-boot-resume.sh \
+    migrate-pool-ids.sh \
+    pool-migration-transaction.sh \
+    pool-migration-baseline.sh
 do
     /bin/bash -n "$BASE/$DATEI" || {
         echo "STOP: Syntaxfehler: $DATEI"
@@ -415,13 +421,32 @@ if [ -f "$BASELINE" ]; then
     echo "OK: Vorhandene Identity-Baseline gueltig."
 else
     echo "Keine Identity-Baseline vorhanden."
-    echo "Activation-Preflight erzeugt die servereigene Baseline."
+    echo "Zuerst wird der normale Activation-Preflight versucht."
 
-    /bin/bash "$BASE/activation-preflight.sh" \
-        --write-baseline "$BASELINE" || {
-            echo "STOP: Activation-Preflight hat keine sichere Baseline erzeugt."
+    if /bin/bash "$BASE/activation-preflight.sh" \
+        --write-baseline "$BASELINE"
+    then
+        echo "OK: Servereigene Identity-Baseline erzeugt."
+
+    else
+        echo
+        echo "===== POOL-MIGRATION AUTOMATISCH PRUEFEN ====="
+        echo "Normaler Preflight konnte noch keine Baseline erzeugen."
+        echo "Pool-Zuweisungen werden jetzt sicher geprueft."
+
+        /bin/bash "$BASE/migrate-pool-ids.sh" --apply || {
+            echo "STOP: Automatische Pool-Migration ist fehlgeschlagen."
             exit 1
         }
+
+        echo
+        echo "===== VOLLSTAENDIGE TRANSITION-BASELINE ====="
+
+        /bin/bash "$BASE/pool-migration-baseline.sh" --create || {
+            echo "STOP: Transition-Baseline konnte nicht erzeugt werden."
+            exit 1
+        }
+    fi
 
     /bin/bash "$BASE/identity-baseline.sh" \
         --validate "$BASELINE" || {
@@ -584,6 +609,14 @@ echo "===== 8. ABSCHLUSSKONTROLLE ====="
         echo "STOP: Identity-Baseline nach Installation ungueltig."
         exit 1
     }
+
+echo
+echo "===== STRENGER ACTIVATION-PREFLIGHT ====="
+
+/bin/bash "$BASE/activation-preflight.sh" || {
+    echo "STOP: Strenger Activation-Preflight nach Udev-Aktivierung fehlgeschlagen."
+    exit 1
+}
 
 for REGEL in \
     59-array-serial.rules \

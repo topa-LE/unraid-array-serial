@@ -175,9 +175,23 @@ Der schreibende Backend-Pfad liegt in:
 
     pool-migration-transaction.sh
 
+Array- und Pool-Migration bleiben intern getrennte Transaktionspfade. Der normale Benutzer muss eine erforderliche Pool-ID-Migration jedoch nicht manuell über interne Migrationsskripte starten.
+
+Der zentrale Installations-Orchestrator ist:
+
+~~~bash
+/bin/bash /boot/config/custom/array-serial/install.sh
+~~~
+
+Er erkennt beim erstmaligen Activation-Preflight eine erforderliche Pool-ID-Migration, führt den sicheren Pool-Migrationspfad aus und erzeugt anschließend über den kontrollierten Übergangspfad die vollständige servereigene Identity-Baseline.
+
+Danach werden die persistenten Udev-Regeln aktiviert und ein strenger Activation-Preflight ausgeführt.
+
 Der Transaktionspfad prüft die geplanten Änderungen, sichert die ursprünglichen Pool-Konfigurationsdateien und besitzt einen Rollback-Pfad für bereits geschriebene Konfigurationen.
 
 Er verändert keine Partitionierung, Dateisystem-UUID oder Nutzdaten.
+
+`migrate-pool-ids.sh --apply` ist ein internes Backend und kein notwendiger Schritt des normalen Benutzerablaufs.
 
 ## Vor einer produktiven Migration
 

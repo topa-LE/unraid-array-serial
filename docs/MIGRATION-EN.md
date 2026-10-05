@@ -178,9 +178,23 @@ The write-capable backend path is located in:
 pool-migration-transaction.sh
 ```
 
+Array and pool migration remain separate transaction paths internally. However, the normal user does not need to start a required pool ID migration manually through internal migration scripts.
+
+The central installation orchestrator is:
+
+~~~bash
+/bin/bash /boot/config/custom/array-serial/install.sh
+~~~
+
+It detects a required pool ID migration during the initial Activation Preflight, runs the safe pool migration path and then creates the complete server-specific Identity Baseline through the controlled transition path.
+
+The persistent Udev rules are then activated and a strict Activation Preflight is performed.
+
 The transaction path verifies the planned changes, backs up the original pool configuration files and provides a rollback path for configurations that have already been written.
 
 It does not modify partitioning, file-system UUIDs or user data.
+
+`migrate-pool-ids.sh --apply` is an internal backend and is not a required step in the normal user workflow.
 
 ## Before a Production Migration
 

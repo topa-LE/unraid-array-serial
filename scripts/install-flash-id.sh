@@ -130,6 +130,42 @@ echo "Flash-ID:       $FLASH_SERIAL"
 echo "Hardware-ID:    $FLASH_SHORT"
 
 echo
+echo "===== KONKURRIERENDE FLASH-BY-ID-LINKS BEREINIGEN ====="
+
+FLASH_LINK="/dev/disk/by-id/usb-$FLASH_SERIAL"
+
+[ -L "$FLASH_LINK" ] || {
+    echo "FEHLER: Kanonischer Flash-by-id-Link fehlt: $FLASH_LINK" >&2
+    exit 1
+}
+
+[ "$(readlink -f "$FLASH_LINK")" = "$BOOT_DISK" ] || {
+    echo "FEHLER: Kanonischer Flash-by-id-Link zeigt nicht auf $BOOT_DISK." >&2
+    exit 1
+}
+
+ENTFERNTE_LINKS=0
+
+for LINK in /dev/disk/by-id/usb-*; do
+    [ -L "$LINK" ] || continue
+    [ "$LINK" = "$FLASH_LINK" ] && continue
+    [ "$(readlink -f "$LINK" 2>/dev/null)" = "$BOOT_DISK" ] || continue
+
+    case "$LINK" in
+        *-part[0-9]*)
+            continue
+            ;;
+    esac
+
+    echo "Entferne konkurrierenden Flash-Link: $LINK"
+    rm -- "$LINK"
+    ENTFERNTE_LINKS=$((ENTFERNTE_LINKS + 1))
+done
+
+echo "Kanonischer Flash-Link: $FLASH_LINK"
+echo "Entfernte konkurrierende Links: $ENTFERNTE_LINKS"
+
+echo
 echo "===== BOOT-PARTITIONEN TRIGGERN ====="
 
 PARTITIONEN=0

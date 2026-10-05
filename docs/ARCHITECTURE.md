@@ -281,7 +281,11 @@ migrate-pool-ids.sh
 pool-migration-transaction.sh
 ```
 
-Array- und Pool-Migration werden bewusst getrennt behandelt.
+Array- und Pool-Migration werden intern bewusst als getrennte Transaktionspfade behandelt.
+
+Für den normalen Benutzer orchestriert `install.sh` eine erforderliche Pool-ID-Migration automatisch.
+
+Nach erfolgreicher Pool-Migration erzeugt der kontrollierte Übergangspfad die vollständige Identity-Baseline, bevor die persistenten Udev-Regeln aktiviert und anschließend streng geprüft werden.
 
 Der Pool-Transaktionspfad sichert die betroffenen Konfigurationsdateien und besitzt einen Rollback-Pfad für bereits geschriebene Konfigurationen.
 
@@ -307,7 +311,7 @@ Udev-Regel:
 64-array-serial-flash.rules
 ```
 
-Der Flash-Pfad ergänzt einen stabilen Projekt-Link, ohne den nativen Hersteller-Link absichtlich zu entfernen.
+Der Flash-Pfad erzeugt einen stabilen Projekt-Link. Nach erfolgreicher Verifikation entfernt `install-flash-id.sh` konkurrierende USB-by-id-Links, die auf dasselbe physische Unraid-Boot-Laufwerk zeigen, bevor `emhttp` gestartet wird.
 
 Details:
 

@@ -6,12 +6,16 @@
 # Danach normalisiert flash-id.sh ausschliesslich die Identitaet des
 # physischen Laufwerks, auf dem /boot liegt.
 #
-# Der native systemd-Udev-Link bleibt aus Kompatibilitaetsgruenden
-# bestehen. Zusaetzlich wird ein sauberer stabiler Flash-by-id-Link
-# auf Basis der normalisierten ID_SERIAL erzeugt.
+# Die Regel erzeugt auf Basis der normalisierten ID_SERIAL einen
+# sauberen stabilen Flash-by-id-Link.
 #
-# Es werden ausschliesslich Udev-Eigenschaften und ein zusaetzlicher
-# /dev/disk/by-id-Symlink verwaltet.
+# install-flash-id.sh entfernt nach erfolgreicher Verifikation
+# konkurrierende usb-by-id-Links, die auf dasselbe physische
+# Unraid-Boot-Laufwerk zeigen. Dadurch sieht Unraid/emhttp beim Start
+# eindeutig die normalisierte Flash-Identitaet.
+#
+# Es werden ausschliesslich Udev-Eigenschaften und
+# /dev/disk/by-id-Symlinks des physischen Boot-Laufwerks verwaltet.
 # Dateisystem, Label, UUID, PARTUUID, Hardware-Seriennummer und
 # Unraid-Lizenzdaten werden nicht veraendert.
 

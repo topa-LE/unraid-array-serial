@@ -439,6 +439,57 @@ done
 
 sync
 
+echo
+echo "===== VERIFIZIERTEN MIGRATIONSPLAN SICHERN ====="
+
+PERSISTENTER_PLAN="$BACKUP_DIR/migration-plan.tsv"
+PERSISTENTER_PLAN_SHA="$BACKUP_DIR/migration-plan.tsv.sha256"
+
+[ ! -e "$PERSISTENTER_PLAN" ] || {
+    echo "STOP: Persistenter Migrationsplan existiert bereits: $PERSISTENTER_PLAN"
+    rollback
+    exit 1
+}
+
+[ ! -e "$PERSISTENTER_PLAN_SHA" ] || {
+    echo "STOP: Persistenter Plan-Hash existiert bereits: $PERSISTENTER_PLAN_SHA"
+    rollback
+    exit 1
+}
+
+cp -p "$PLAN" "$PERSISTENTER_PLAN" || {
+    echo "STOP: Verifizierter Migrationsplan konnte nicht gesichert werden."
+    rollback
+    exit 1
+}
+
+read -r PLAN_HASH _ < <(sha256sum "$PERSISTENTER_PLAN")
+
+[ -n "$PLAN_HASH" ] || {
+    echo "STOP: Hash des verifizierten Migrationsplans konnte nicht ermittelt werden."
+    rollback
+    exit 1
+}
+
+printf '%s  %s\n' "$PLAN_HASH" "$PERSISTENTER_PLAN" > "$PERSISTENTER_PLAN_SHA" || {
+    echo "STOP: Hashdatei fuer verifizierten Migrationsplan konnte nicht geschrieben werden."
+    rollback
+    exit 1
+}
+
+sha256sum -c "$PERSISTENTER_PLAN_SHA" >/dev/null || {
+    echo "STOP: Verifizierter Migrationsplan besteht die Hashpruefung nicht."
+    rollback
+    exit 1
+}
+
+sync
+
+echo "OK: Verifizierter Migrationsplan persistent gesichert."
+echo "Migrationsplan: $PERSISTENTER_PLAN"
+echo "Migrationsplan-SHA: $PERSISTENTER_PLAN_SHA"
+
+echo
 echo "OK: Alle Pool-CFGs erfolgreich migriert."
 echo "Backup-Verzeichnis: $BACKUP_DIR"
 echo "ERGEBNIS: POOL_TRANSACTION_APPLY_OK"

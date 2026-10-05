@@ -38,21 +38,32 @@ TIMEOUT=20
 
 BASELINE_SCHREIBEN=0
 BASELINE_ZIEL=""
+TRANSITION_BASELINE=0
 
 case "${1:-}" in
     "")
         ;;
     --write-baseline)
         [ "$#" -eq 2 ] || {
-            echo "STOP: Verwendung: $0 [--write-baseline DATEI]" >&2
+            echo "STOP: Verwendung: $0 [--write-baseline DATEI | --write-transition-baseline DATEI]" >&2
             exit 2
         }
 
         BASELINE_SCHREIBEN=1
         BASELINE_ZIEL="$2"
         ;;
+    --write-transition-baseline)
+        [ "$#" -eq 2 ] || {
+            echo "STOP: Verwendung: $0 [--write-baseline DATEI | --write-transition-baseline DATEI]" >&2
+            exit 2
+        }
+
+        BASELINE_SCHREIBEN=1
+        BASELINE_ZIEL="$2"
+        TRANSITION_BASELINE=1
+        ;;
     *)
-        echo "STOP: Verwendung: $0 [--write-baseline DATEI]" >&2
+        echo "STOP: Verwendung: $0 [--write-baseline DATEI | --write-transition-baseline DATEI]" >&2
         exit 2
         ;;
 esac
@@ -450,10 +461,14 @@ for STORED_ID in "${!STORED_KIND[@]}"; do
     fi
 
     if [ "$UDEV_ID" != "$PROJECT_ID" ]; then
-        echo "Status:      UDEV_NICHT_SAUBER"
-        FEHLER=1
-        echo
-        continue
+        if [ "$TRANSITION_BASELINE" -eq 1 ]; then
+            echo "Status:      UDEV_TRANSITION_ZUGELASSEN"
+        else
+            echo "Status:      UDEV_NICHT_SAUBER"
+            FEHLER=1
+            echo
+            continue
+        fi
     fi
 
     #
