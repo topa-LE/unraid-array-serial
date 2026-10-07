@@ -1844,6 +1844,15 @@ EOF
             echo "Parity-Policy: $PARITY_POLICY"
             echo "Aktion: NEW_ARRAY mit als gueltig bestaetigter vorhandener Parity."
 
+            # PRESERVE ist ausschliesslich fuer Single-Parity zulaessig.
+            # Das verifizierte Transaktionsmanifest muss genau parity
+            # auf Slot 0 enthalten und darf parity2 auf Slot 29 nicht enthalten.
+            [ "$(awk -F '\t' '$1 == "0" && $2 == "parity" { count++ } END { print count+0 }' "$MANIFEST")" -eq 1 ] ||
+                fehler "Parity-Preserve verweigert: parity auf Slot 0 fehlt oder ist nicht eindeutig."
+
+            [ "$(awk -F '\t' '$1 == "29" || $2 == "parity2" { count++ } END { print count+0 }' "$MANIFEST")" -eq 0 ] ||
+                fehler "Parity-Preserve verweigert: Dual-Parity wird nicht automatisch als gueltig markiert."
+
             # Unraid verwendet invalidslot=99 fuer:
             # "Parity is already valid".
             # Dieser Pfad ist nur erreichbar, nachdem das komplette
