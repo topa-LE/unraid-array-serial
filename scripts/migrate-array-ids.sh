@@ -329,7 +329,7 @@ plan_gegen_hardware_aufloesen() {
             [ -e "$SYS" ] || continue
 
             NAME="$(basename "$SYS")"
-            [[ "$NAME" =~ ^sd[a-z]+$ ]] || continue
+            [[ "$NAME" =~ ^sd[a-z]+$|^nvme[0-9]+n[0-9]+$ ]] || continue
 
             if [ -n "$BOOT_DISK" ] && [ "$NAME" = "$BOOT_DISK" ]; then
                 continue

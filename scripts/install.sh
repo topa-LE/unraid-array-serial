@@ -442,10 +442,24 @@ else
         echo
         echo "===== VOLLSTAENDIGE TRANSITION-BASELINE ====="
 
-        /bin/bash "$BASE/pool-migration-baseline.sh" --create || {
-            echo "STOP: Transition-Baseline konnte nicht erzeugt werden."
-            exit 1
-        }
+        if /bin/bash "$BASE/pool-migration-baseline.sh" --create
+        then
+            echo "OK: Vollstaendige Transition-Baseline erzeugt."
+        else
+            echo
+            echo "===== ARRAY-MIGRATION AUTOMATISCH PRUEFEN ====="
+            echo "Transition-Baseline konnte noch nicht erzeugt werden."
+            echo "Der vorhandene sichere Array-Migrationspfad wird verwendet."
+            echo
+
+            /bin/bash "$BASE/install.sh" --migrate-array || {
+                echo
+                echo "STOP: Sichere Array-Migration konnte nicht vorbereitet werden."
+                exit 1
+            }
+
+            exit 0
+        fi
     fi
 
     /bin/bash "$BASE/identity-baseline.sh" \

@@ -41,7 +41,7 @@ capture() {
     local STATE=""
     local STATE_SHA=""
 
-    [ -x "$STATE_TOOL" ] ||
+    [ -r "$STATE_TOOL" ] ||
         fehler "MD-State-Modul fehlt oder ist nicht ausfuehrbar: $STATE_TOOL"
 
     [ -d "$BACKUP_DIR" ] ||
@@ -78,7 +78,7 @@ validate() {
     local STATE=""
     local STATE_SHA=""
 
-    [ -x "$STATE_TOOL" ] ||
+    [ -r "$STATE_TOOL" ] ||
         fehler "MD-State-Modul fehlt oder ist nicht ausfuehrbar: $STATE_TOOL"
 
     [ -d "$BACKUP_DIR" ] ||

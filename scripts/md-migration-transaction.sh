@@ -1780,7 +1780,7 @@ EOF
     echo
     echo "===== PHASE B – MD-AUSGANGSZUSTAND ====="
 
-    [ -x "/boot/config/custom/array-serial/md-migration-state-bridge.sh" ] ||
+    [ -r "/boot/config/custom/array-serial/md-migration-state-bridge.sh" ] ||
         fehler "MD-State-Bridge fehlt oder ist nicht ausfuehrbar."
 
     /bin/bash "/boot/config/custom/array-serial/md-migration-state-bridge.sh" \
@@ -2270,10 +2270,10 @@ if [ "${1:-}" = "--prepare-reboot" ]; then
     echo
     echo "===== PHASE A – MD-AUSGANGSZUSTAND ====="
 
-    [ -x "/boot/config/custom/array-serial/md-migration-array-state.sh" ] ||
+    [ -r "/boot/config/custom/array-serial/md-migration-array-state.sh" ] ||
         fehler "MD-State-Modul fehlt oder ist nicht ausfuehrbar."
 
-    [ -x "/boot/config/custom/array-serial/md-migration-state-bridge.sh" ] ||
+    [ -r "/boot/config/custom/array-serial/md-migration-state-bridge.sh" ] ||
         fehler "MD-State-Bridge fehlt oder ist nicht ausfuehrbar."
 
     /bin/bash "/boot/config/custom/array-serial/md-migration-state-bridge.sh" \
