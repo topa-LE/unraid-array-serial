@@ -562,17 +562,14 @@ md_imports_schreiben() {
 
 
 md_persistenz_abschliessen() {
-    local MD_STATE=""
-
-    MD_STATE="$(
-        sed -n 's/^mdState=//p' /proc/mdstat |
-        head -n 1
-    )"
-
-    [ "$MD_STATE" = "STOPPED" ] ||
-        fehler "Persistenzabschluss nur bei STOPPED erlaubt. Aktuell: ${MD_STATE:-UNBEKANNT}"
-
-    md_befehl_schreiben "start NEW_ARRAY"
+    # Legacy-Pfad:
+    # Ein direkter NEW_ARRAY-Start ist hier absichtlich gesperrt.
+    #
+    # Parity-Policy und NEW_ARRAY duerfen ausschliesslich durch den
+    # transaktionsgebundenen Phase-B-Pfad entschieden werden.
+    # Dadurch kann dieser historische Helfer keine gueltige Parity
+    # versehentlich als neu aufzubauend behandeln.
+    fehler "Direkter Persistenzabschluss ist gesperrt. NEW_ARRAY darf nur ueber Phase B gestartet werden."
 }
 
 
