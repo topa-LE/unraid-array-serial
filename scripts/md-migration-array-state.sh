@@ -4,18 +4,18 @@
 # Persistente Sicherung des MD-Ausgangszustands vor einer ID-Migration.
 #
 # Sicherheitsregel:
-# Die Parity-Policy wird nicht aus einzelnen MD-Laufzeitwerten abgeleitet.
-# PRESERVE bedeutet ausschliesslich:
-# Die spaetere Phase B darf vorhandene Parity nur dann als gueltig markieren,
-# wenn die transaktionsgebundene Hardware-/Slot-/Start-/Size-Pruefung
-# vollstaendig erfolgreich war.
+# Vorhandene Parity darf nur erhalten werden, wenn ZWEI Bedingungen
+# unabhaengig voneinander erfuellt sind:
 #
-# Kann Phase B diese Identitaet nicht beweisen, wird die Migration verweigert.
+# 1. Phase A dokumentiert einen gueltigen Parity-Ausgangszustand.
+# 2. Phase B beweist transaktionsgebunden dieselben physischen Datentraeger,
+#    Slots, Partitionsstarts und Groessen.
 #
-# Automatische Policy fuer eine reine ID-Migration:
-#   PARITY_POLICY=PRESERVE
+# Nur der von Unraid gemeldete gueltige Ausgangszustand "check P"
+# aktiviert PRESERVE. Jeder andere Zustand faellt sicher auf SYNC zurueck.
 #
-# Die vorhandenen MD-Werte werden zusaetzlich vollstaendig dokumentiert.
+# Kann Phase B spaeter die Datentraegeridentitaet nicht beweisen,
+# wird die Migration unabhaengig von dieser Policy verweigert.
 
 set -euo pipefail
 
@@ -56,7 +56,7 @@ state_schreiben() {
     local MD_RESYNC_ACTION=""
     local MD_RESYNC=""
     local MD_RESYNC_POS=""
-    local PARITY_POLICY="PRESERVE"
+    local PARITY_POLICY="SYNC"
 
     [ -n "$ZIEL" ] ||
         fehler "Zieldatei fehlt."
@@ -90,6 +90,19 @@ state_schreiben() {
 
     MD_RESYNC_POS="$(md_wert mdResyncPos)" ||
         fehler "mdResyncPos fehlt."
+
+    # Unraid kennzeichnet gueltige vorhandene Single-Parity im
+    # gestoppten Ausgangszustand mit mdResyncAction="check P".
+    # Nur dieser eindeutig erkannte Zustand darf PRESERVE anfordern.
+    # Alle anderen Zustaende bleiben beim sicheren SYNC-Fallback.
+    if [ "$MD_RESYNC_ACTION" = "check P" ] &&
+       [ "$MD_RESYNC" = "0" ] &&
+       [ "$MD_RESYNC_POS" = "0" ]
+    then
+        PARITY_POLICY="PRESERVE"
+    else
+        PARITY_POLICY="SYNC"
+    fi
 
     [ "$MD_STATE" = "STOPPED" ] ||
         fehler "Migration erwartet vor Phase A ein gestopptes Array. Aktuell: $MD_STATE"
