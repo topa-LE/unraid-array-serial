@@ -4,13 +4,18 @@
 # Persistente Sicherung des MD-Ausgangszustands vor einer ID-Migration.
 #
 # Sicherheitsregel:
-# Eine ID-Migration darf aus MD-Laufzeitwerten allein niemals ableiten,
-# dass vorhandene Parity weiterhin gueltig ist.
+# Die Parity-Policy wird nicht aus einzelnen MD-Laufzeitwerten abgeleitet.
+# PRESERVE bedeutet ausschliesslich:
+# Die spaetere Phase B darf vorhandene Parity nur dann als gueltig markieren,
+# wenn die transaktionsgebundene Hardware-/Slot-/Start-/Size-Pruefung
+# vollstaendig erfolgreich war.
 #
-# Deshalb ist die automatische Policy fuer die Migration:
-#   PARITY_POLICY=SYNC
+# Kann Phase B diese Identitaet nicht beweisen, wird die Migration verweigert.
 #
-# Die vorhandenen MD-Werte werden trotzdem vollstaendig dokumentiert.
+# Automatische Policy fuer eine reine ID-Migration:
+#   PARITY_POLICY=PRESERVE
+#
+# Die vorhandenen MD-Werte werden zusaetzlich vollstaendig dokumentiert.
 
 set -euo pipefail
 
@@ -51,7 +56,7 @@ state_schreiben() {
     local MD_RESYNC_ACTION=""
     local MD_RESYNC=""
     local MD_RESYNC_POS=""
-    local PARITY_POLICY="SYNC"
+    local PARITY_POLICY="PRESERVE"
 
     [ -n "$ZIEL" ] ||
         fehler "Zieldatei fehlt."
@@ -210,8 +215,13 @@ state_pruefen() {
     [ "$MD_NUM_NEW" -eq 0 ] ||
         fehler "Gesicherter MD-Zustand enthaelt NEW-Datentraeger."
 
-    [ "$PARITY_POLICY" = "SYNC" ] ||
-        fehler "Ungueltige oder unsichere Parity-Policy: ${PARITY_POLICY:-LEER}"
+    case "$PARITY_POLICY" in
+        PRESERVE|SYNC)
+            ;;
+        *)
+            fehler "Ungueltige oder unsichere Parity-Policy: ${PARITY_POLICY:-LEER}"
+            ;;
+    esac
 
     echo "OK: MD-Ausgangszustand verifiziert."
     echo "mdNumDisks=$MD_NUM_DISKS"
@@ -235,8 +245,13 @@ parity_policy_lesen() {
         fi
     done < "$DATEI"
 
-    [ "$PARITY_POLICY" = "SYNC" ] ||
-        fehler "Keine sichere Parity-Policy im MD-Ausgangszustand."
+    case "$PARITY_POLICY" in
+        PRESERVE|SYNC)
+            ;;
+        *)
+            fehler "Keine sichere Parity-Policy im MD-Ausgangszustand."
+            ;;
+    esac
 
     printf '%s\n' "$PARITY_POLICY"
 }

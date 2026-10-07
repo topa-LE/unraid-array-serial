@@ -1842,14 +1842,33 @@ EOF
     )" ||
         fehler "Parity-Policy konnte nicht sicher gelesen werden."
 
-    [ "$PARITY_POLICY" = "SYNC" ] ||
-        fehler "Nicht unterstuetzte Parity-Policy: ${PARITY_POLICY:-LEER}"
+    case "$PARITY_POLICY" in
+        PRESERVE)
+            echo "Parity-Policy: $PARITY_POLICY"
+            echo "Aktion: NEW_ARRAY mit als gueltig bestaetigter vorhandener Parity."
 
-    echo "Parity-Policy: $PARITY_POLICY"
-    echo "Aktion: NEW_ARRAY mit sicherer Parity-Synchronisation."
+            # Unraid verwendet invalidslot=99 fuer:
+            # "Parity is already valid".
+            # Dieser Pfad ist nur erreichbar, nachdem das komplette
+            # Transaktionsmanifest gegen Hardware, Slots, Partitionsstart
+            # und Groesse erfolgreich verifiziert wurde.
+            md_befehl_schreiben "set invalidslot 99" ||
+                fehler "Phase-B invalidslot=99 fehlgeschlagen."
 
-    md_befehl_schreiben "start NEW_ARRAY" ||
-        fehler "Phase-B start NEW_ARRAY fehlgeschlagen."
+            md_befehl_schreiben "start NEW_ARRAY" ||
+                fehler "Phase-B start NEW_ARRAY mit Parity-Preserve fehlgeschlagen."
+            ;;
+        SYNC)
+            echo "Parity-Policy: $PARITY_POLICY"
+            echo "Aktion: NEW_ARRAY mit sicherer Parity-Synchronisation."
+
+            md_befehl_schreiben "start NEW_ARRAY" ||
+                fehler "Phase-B start NEW_ARRAY fehlgeschlagen."
+            ;;
+        *)
+            fehler "Nicht unterstuetzte Parity-Policy: ${PARITY_POLICY:-LEER}"
+            ;;
+    esac
 
     echo
     echo "===== PHASE B – NACHPRUEFUNG ====="
