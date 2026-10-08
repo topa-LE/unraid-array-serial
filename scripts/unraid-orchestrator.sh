@@ -15,6 +15,10 @@ RECOVERY_DIR=""
 case "${1:-}" in
     "")
         ;;
+    --new-server)
+        [ "$#" -eq 1 ] || exit 1
+        MODUS="NEW_SERVER"
+        ;;
     --migrate-array)
         [ "$#" -eq 1 ] || {
             echo "Verwendung: $0 [--migrate-array | --recover-migration-baseline TRANSAKTIONSVERZEICHNIS]"
@@ -48,6 +52,7 @@ echo "===== 1. PROJEKTDATEIEN PRUEFEN ====="
 
 for DATEI in \
     activation-preflight.sh \
+    install-new-server.sh \
     identity-baseline.sh \
     identity-tuple.sh \
     serial-id.sh \
@@ -86,6 +91,7 @@ echo "===== 2. SHELL-SYNTAX PRUEFEN ====="
 
 for DATEI in \
     activation-preflight.sh \
+    install-new-server.sh \
     identity-baseline.sh \
     identity-tuple.sh \
     serial-id.sh \
@@ -406,6 +412,24 @@ if [ "$MODUS" = "MIGRATE_ARRAY" ]; then
 fi
 
 echo
+NEW_SERVER_INSTALL=0
+
+if [ "$MODUS" = "NEW_SERVER" ]; then
+    echo "===== NEW-SERVER – ERSTINSTALLATION ====="
+
+    if [ -f "$BASELINE" ]; then
+        echo "Vorhandene Baseline wird validiert."
+        /bin/bash "$BASE/identity-baseline.sh"             --validate "$BASELINE" || exit 1
+        echo "OK: Vorhandene Baseline gueltig."
+    else
+        /bin/bash "$BASE/install-new-server.sh" --apply || exit 1
+        echo "OK: New-Server-Baseline erstellt."
+        NEW_SERVER_INSTALL=1
+    fi
+
+    MODUS="INSTALL"
+fi
+
 echo "===== 3. SERVER-IDENTITAET / BASELINE ====="
 
 if [ -f "$BASELINE" ]; then
@@ -421,14 +445,33 @@ if [ -f "$BASELINE" ]; then
     echo "OK: Vorhandene Identity-Baseline gueltig."
 else
     echo "Keine Identity-Baseline vorhanden."
-    echo "Zuerst wird der normale Activation-Preflight versucht."
+    echo "Erstinstallation und bestehende Serverkonfiguration werden geprueft."
 
-    if /bin/bash "$BASE/activation-preflight.sh" \
+    if /bin/bash "$BASE/install-new-server.sh" --preview; then
+        echo "Jungfraeulicher Server erkannt."
+        /bin/bash "$BASE/install-new-server.sh" --apply || exit 1
+        echo "OK: Erstinstallations-Baseline erzeugt."
+        NEW_SERVER_INSTALL=1
+
+    elif /bin/bash "$BASE/activation-preflight.sh" \
         --write-baseline "$BASELINE"
     then
         echo "OK: Servereigene Identity-Baseline erzeugt."
 
     else
+        echo
+        echo "===== NEW-SERVER-SICHERHEITSSPERRE ====="
+
+        if [ -r /proc/mdstat ] &&
+           grep -qx 'mdNumDisks=0' /proc/mdstat &&
+           ! grep -Eq '^diskId\.[0-9]+=.+$' /proc/mdstat &&
+           [ -d /boot/config/pools ] &&
+           ! compgen -G '/boot/config/pools/*.cfg' > /dev/null; then
+            echo "STOP: Leeres Array erkannt, aber New-Server-Preflight fehlgeschlagen."
+            echo "Keine automatische Migration."
+            exit 1
+        fi
+
         echo
         echo "===== POOL-MIGRATION AUTOMATISCH PRUEFEN ====="
         echo "Normaler Preflight konnte noch keine Baseline erzeugen."
@@ -627,10 +670,15 @@ echo "===== 8. ABSCHLUSSKONTROLLE ====="
 echo
 echo "===== STRENGER ACTIVATION-PREFLIGHT ====="
 
-/bin/bash "$BASE/activation-preflight.sh" || {
-    echo "STOP: Strenger Activation-Preflight nach Udev-Aktivierung fehlgeschlagen."
-    exit 1
-}
+if [ "$NEW_SERVER_INSTALL" -eq 1 ]; then
+    echo "New-Server: Keine Array-/Pool-Zuweisungen vorhanden."
+    echo "Strenger Activation-Preflight fuer bestehende Zuweisungen entfaellt."
+else
+    /bin/bash "$BASE/activation-preflight.sh" || {
+        echo "STOP: Strenger Activation-Preflight nach Udev-Aktivierung fehlgeschlagen."
+        exit 1
+    }
+fi
 
 for REGEL in \
     59-array-serial.rules \
