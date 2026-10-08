@@ -65,7 +65,7 @@ Verifiziert wurden unter anderem:
 **👉 Der zentrale Installations-Orchestrator ist:**
 
 ```bash
-/boot/config/custom/array-serial/install.sh
+/boot/config/custom/array-serial/unraid-orchestrator.sh
 ```
 
 **👉 Ein erfolgreicher Lauf endet mit:**
@@ -210,11 +210,11 @@ auf dem Unraid-Zielsystem vorhanden sein.
 Danach wird als `root` ausgeführt:
 
 ```bash
-/bin/bash /boot/config/custom/array-serial/install.sh
+/bin/bash /boot/config/custom/array-serial/unraid-orchestrator.sh
 ```
 
 > [!IMPORTANT]
-> `install.sh` lädt das Git-Repository nicht selbst herunter und synchronisiert es nicht selbst. Der Orchestrator setzt voraus, dass die aktuellen Projektdateien bereits vollständig im Projektverzeichnis vorhanden sind.
+> `unraid-orchestrator.sh` lädt das Git-Repository nicht selbst herunter und synchronisiert es nicht selbst. Der Orchestrator setzt voraus, dass die aktuellen Projektdateien bereits vollständig im Projektverzeichnis vorhanden sind.
 
 Bei einer erstmaligen Baseline-Erstellung müssen bereits gespeicherte Array- beziehungsweise Pool-Zuweisungen vorhanden und eindeutig prüfbar sein.
 
@@ -279,7 +279,7 @@ Wenn eine bestehende gespeicherte Unraid-ID nicht bereits der erwarteten Projekt
 In diesem Fall muss zuerst der dafür vorgesehene Array-Migrationspfad verwendet werden:
 
 ~~~bash
-/bin/bash /boot/config/custom/array-serial/install.sh --migrate-array
+/bin/bash /boot/config/custom/array-serial/unraid-orchestrator.sh --migrate-array
 ~~~
 
 Nur wenn der Lauf erfolgreich mit `BEREIT_FUER_REBOOT` endet, wird Unraid normal neu gestartet:

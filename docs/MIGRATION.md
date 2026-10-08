@@ -54,7 +54,7 @@ Auf dem Unraid-Server wird als `root` der zentrale Installer mit dem
 Migrationsmodus gestartet:
 
 ~~~bash
-/bin/bash /boot/config/custom/array-serial/install.sh --migrate-array
+/bin/bash /boot/config/custom/array-serial/unraid-orchestrator.sh --migrate-array
 ~~~
 
 Der Installer führt die vorbereitende Phase A aus. Nur wenn der Lauf
@@ -180,7 +180,7 @@ Array- und Pool-Migration bleiben intern getrennte Transaktionspfade. Der normal
 Der zentrale Installations-Orchestrator ist:
 
 ~~~bash
-/bin/bash /boot/config/custom/array-serial/install.sh
+/bin/bash /boot/config/custom/array-serial/unraid-orchestrator.sh
 ~~~
 
 Er erkennt beim erstmaligen Activation-Preflight eine erforderliche Pool-ID-Migration, führt den sicheren Pool-Migrationspfad aus und erzeugt anschließend über den kontrollierten Übergangspfad die vollständige servereigene Identity-Baseline.

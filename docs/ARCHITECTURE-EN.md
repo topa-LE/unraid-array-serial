@@ -206,7 +206,7 @@ Runtime rules:
 
 `enable-boot.sh` configures the core hooks in `/boot/config/go`.
 
-The central orchestrator `install.sh` first checks whether the core hooks are already present unambiguously.
+The central orchestrator `unraid-orchestrator.sh` first checks whether the core hooks are already present unambiguously.
 
 If `boot-log.sh`, `boot-capture.sh` and `install-boot.sh` are each present exactly once, `enable-boot.sh` does not need to be executed again.
 
@@ -233,7 +233,7 @@ This makes it possible to trace block devices, Udev properties and the Unraid st
 
 ## Installation Orchestrator
 
-`scripts/install.sh` coordinates the installation or update of the project files that have already been provided on the target server.
+`scripts/unraid-orchestrator.sh` coordinates the installation or update of the project files that have already been provided on the target server.
 
 The process includes:
 
@@ -249,7 +249,7 @@ The process includes:
 
 An existing baseline is not automatically replaced.
 
-`install.sh` is not a repository downloader or Git synchronization mechanism. The project files must already be completely present in the persistent project directory before it is invoked.
+`unraid-orchestrator.sh` is not a repository downloader or Git synchronization mechanism. The project files must already be completely present in the persistent project directory before it is invoked.
 
 ## Array Migration
 
@@ -281,7 +281,7 @@ pool-migration-transaction.sh
 
 Array and pool migration are deliberately kept as separate transaction paths internally.
 
-For the normal user, `install.sh` automatically orchestrates a required pool ID migration.
+For the normal user, `unraid-orchestrator.sh` automatically orchestrates a required pool ID migration.
 
 After a successful pool migration, the controlled transition path creates the complete Identity Baseline before the persistent Udev rules are activated and then strictly verified.
 

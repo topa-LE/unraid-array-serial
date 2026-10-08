@@ -54,7 +54,7 @@ migration scripts individually or manually edit Unraid configuration files.
 On the Unraid server, run the central installer as `root` with migration mode:
 
 ~~~bash
-/bin/bash /boot/config/custom/array-serial/install.sh --migrate-array
+/bin/bash /boot/config/custom/array-serial/unraid-orchestrator.sh --migrate-array
 ~~~
 
 The installer performs the preparatory Phase A. Only if the run completes
@@ -183,7 +183,7 @@ Array and pool migration remain separate transaction paths internally. However, 
 The central installation orchestrator is:
 
 ~~~bash
-/bin/bash /boot/config/custom/array-serial/install.sh
+/bin/bash /boot/config/custom/array-serial/unraid-orchestrator.sh
 ~~~
 
 It detects a required pool ID migration during the initial Activation Preflight, runs the safe pool migration path and then creates the complete server-specific Identity Baseline through the controlled transition path.

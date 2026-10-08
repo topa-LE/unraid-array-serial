@@ -65,7 +65,7 @@ The following have been verified, among other things:
 **👉 The central installation orchestrator is:**
 
 ```bash
-/boot/config/custom/array-serial/install.sh
+/boot/config/custom/array-serial/unraid-orchestrator.sh
 ```
 
 **👉 A successful run ends with:**
@@ -208,11 +208,11 @@ on the target Unraid system.
 Then run the following as `root`:
 
 ```bash
-/bin/bash /boot/config/custom/array-serial/install.sh
+/bin/bash /boot/config/custom/array-serial/unraid-orchestrator.sh
 ```
 
 > [!IMPORTANT]
-> `install.sh` does not download or synchronize the Git repository itself. The orchestrator assumes that the current project files are already completely present in the project directory.
+> `unraid-orchestrator.sh` does not download or synchronize the Git repository itself. The orchestrator assumes that the current project files are already completely present in the project directory.
 
 When creating a baseline for the first time, stored array or pool assignments must already exist and must be unambiguously verifiable.
 
@@ -289,7 +289,7 @@ If an existing stored Unraid ID does not already match the expected project ID, 
 In this case, the designated array migration path must be used first:
 
 ~~~bash
-/bin/bash /boot/config/custom/array-serial/install.sh --migrate-array
+/bin/bash /boot/config/custom/array-serial/unraid-orchestrator.sh --migrate-array
 ~~~
 
 Only if the run completes successfully with `BEREIT_FUER_REBOOT` should Unraid be rebooted normally:

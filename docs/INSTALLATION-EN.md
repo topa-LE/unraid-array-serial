@@ -53,14 +53,14 @@ Target server
 ```
 
 > [!IMPORTANT]
-> The current `install.sh` does not synchronize or clone the repository itself. Before it is started, the project files must already be completely present under `/boot/config/custom/array-serial/`.
+> The current `unraid-orchestrator.sh` does not synchronize or clone the repository itself. Before it is started, the project files must already be completely present under `/boot/config/custom/array-serial/`.
 
 ## Initial Installation
 
 After the project files have been provided, run the following on the target server as `root`:
 
 ```bash
-/bin/bash /boot/config/custom/array-serial/install.sh
+/bin/bash /boot/config/custom/array-serial/unraid-orchestrator.sh
 ```
 
 The orchestrator performs the checks in a defined sequence.
@@ -96,7 +96,7 @@ If no baseline exists yet, the orchestrator invokes the Activation Preflight and
 A new baseline may be written only if the stored array and pool assignments are unambiguous, already clean and baseline-capable.
 
 > [!IMPORTANT]
-> If a baseline already exists, `install.sh` validates the baseline itself. In this branch, the orchestrator does not automatically rerun the complete assignment preflight against the current hardware configuration. A hardware or assignment change must therefore not be considered “confirmed” merely because the installer has been run again.
+> If a baseline already exists, `unraid-orchestrator.sh` validates the baseline itself. In this branch, the orchestrator does not automatically rerun the complete assignment preflight against the current hardware configuration. A hardware or assignment change must therefore not be considered “confirmed” merely because the installer has been run again.
 
 ### 4. Persistent Core Boot Process
 
@@ -193,7 +193,7 @@ For an update, the current repository files are again provided completely under:
 The same orchestrator is then executed again:
 
 ```bash
-/bin/bash /boot/config/custom/array-serial/install.sh
+/bin/bash /boot/config/custom/array-serial/unraid-orchestrator.sh
 ```
 
 The orchestrator is designed for repeated execution.
@@ -207,7 +207,7 @@ Core boot hooks that are already correctly present are not rebuilt unnecessarily
 
 ## Important Boundary
 
-`install.sh` is not a substitute for a required array or pool ID migration.
+`unraid-orchestrator.sh` is not a substitute for a required array or pool ID migration.
 
 If the Activation Preflight reports:
 
@@ -220,7 +220,7 @@ the designated array migration path must be used first.
 On the Unraid server as `root`:
 
 ~~~bash
-/bin/bash /boot/config/custom/array-serial/install.sh --migrate-array
+/bin/bash /boot/config/custom/array-serial/unraid-orchestrator.sh --migrate-array
 ~~~
 
 Only if this run completes successfully and reports

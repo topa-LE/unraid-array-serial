@@ -452,7 +452,7 @@ else
             echo "Der vorhandene sichere Array-Migrationspfad wird verwendet."
             echo
 
-            /bin/bash "$BASE/install.sh" --migrate-array || {
+            /bin/bash "$BASE/unraid-orchestrator.sh" --migrate-array || {
                 echo
                 echo "STOP: Sichere Array-Migration konnte nicht vorbereitet werden."
                 exit 1

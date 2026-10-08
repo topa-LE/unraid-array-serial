@@ -172,7 +172,7 @@ USB_SAT
 
 `CACHE` wird als persistente Baseline-Quelle abgewiesen.
 
-Eine vorhandene Baseline wird durch `install.sh` validiert, aber nicht automatisch neu aus der aktuellen Hardwarebelegung erzeugt.
+Eine vorhandene Baseline wird durch `unraid-orchestrator.sh` validiert, aber nicht automatisch neu aus der aktuellen Hardwarebelegung erzeugt.
 
 ## Udev-Autorisierung
 
