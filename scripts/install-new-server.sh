@@ -25,7 +25,7 @@ for datei in \
     /boot/config/disk.cfg \
     /boot/config/super.dat
 do
-    [ -s "$datei" ] && [ -r "$datei" ] ||
+    [ -r "$datei" ] && { [ "$datei" = /proc/mdstat ] || [ -s "$datei" ]; } ||
         stop "Konfiguration fehlt oder ist nicht lesbar: $datei"
 done
 
@@ -43,8 +43,8 @@ wert() {
     while IFS= read -r zeile; do
         [[ "$zeile" == "$key="* ]] || continue
         ergebnis="${zeile#*=}"
-        ergebnis="${ergebnis#\"}"
-        ergebnis="${ergebnis%\"}"
+        ergebnis="${ergebnis%$'\r'}"
+        ergebnis="$(printf '%s' "$ergebnis" | tr -d '\042')"
         anzahl=$((anzahl + 1))
     done < "$datei"
 

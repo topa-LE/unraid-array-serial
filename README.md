@@ -199,6 +199,23 @@ Der Bootstick bleibt damit technisch vom normalen Array-/Pool-Identity-Pfad getr
 
 ## 📦 Installation
 
+### GitHub-Bootstrap
+
+Installation und Update direkt aus dem offiziellen Repository
+(auf dem Unraid-Server als `root`):
+
+~~~bash
+curl -fsSL https://raw.githubusercontent.com/topa-LE/unraid-array-serial/main/scripts/bootstrap.sh | bash
+~~~
+
+Der Bootstrap lädt die Projektdateien auf den persistenten
+Unraid-Bootstick und startet anschließend den Installations-Orchestrator.
+
+Die Installation ersetzt keine erforderliche Migration bestehender
+Array- oder Pool-Zuweisungen.
+
+
+
 Die Projektdateien müssen zunächst vollständig unter:
 
 ```text

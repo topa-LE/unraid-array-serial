@@ -17,7 +17,7 @@
 
 Dieses Dokument beschreibt die Installation beziehungsweise Aktualisierung von Unraid Array Serial auf einem Zielsystem.
 
-Die Repository-Dateien müssen vor dem Aufruf des Installations-Orchestrators vollständig unter folgendem Verzeichnis vorhanden sein:
+Der GitHub-Bootstrap stellt die Repository-Dateien automatisch bereit. Bei manueller Installation müssen sie vor dem Aufruf des Orchestrators vollständig unter folgendem Verzeichnis vorhanden sein:
 
 ```text
 /boot/config/custom/array-serial/
@@ -53,9 +53,27 @@ Zielserver
 ```
 
 > [!IMPORTANT]
-> Der aktuelle `unraid-orchestrator.sh` synchronisiert oder klont das Repository nicht selbst. Die Projektdateien müssen vor seinem Start bereits vollständig unter `/boot/config/custom/array-serial/` liegen.
+> `unraid-orchestrator.sh` synchronisiert das Repository nicht selbst. Der GitHub-Bootstrap übernimmt die Bereitstellung der Projektdateien vor dem Start des Orchestrators.
 
 ## Erstinstallation
+
+### Direkte Installation über GitHub
+
+Auf dem Unraid-Server als `root`:
+
+~~~bash
+curl -fsSL https://raw.githubusercontent.com/topa-LE/unraid-array-serial/main/scripts/bootstrap.sh | bash
+~~~
+
+Der Bootstrap lädt den Repository-Stand herunter, prüft die
+Shell-Syntax der Skripte, installiert die Projektdateien unter
+`/boot/config/custom/array-serial/` und startet den Orchestrator.
+
+Dieser Weg ist für Erstinstallation und Update vorgesehen.
+Bei bestehenden Array- oder Pool-Zuweisungen gelten weiterhin
+die Sicherheits- und Migrationsprüfungen des Orchestrators.
+
+
 
 Nach der Bereitstellung der Projektdateien wird auf dem Zielserver als `root` ausgeführt:
 
@@ -260,9 +278,11 @@ Ein „neuer Server“ kann zwei unterschiedliche Zustände bedeuten:
 
 Der Activation-Preflight benötigt gespeicherte Zuweisungen als Grundlage seiner Sicherheitsprüfung.
 
-Ein vollständig unkonfiguriertes System ohne solche Zuweisungen ist deshalb nicht automatisch bereit für die produktive Baseline-Erstellung.
+Ein vollständig unkonfiguriertes System ohne gespeicherte Array-/Pool-Zuweisungen wird über den gesonderten New-Server-Pfad behandelt.
 
-Die Zuweisungssituation muss zuerst eindeutig hergestellt beziehungsweise geprüft werden. Erst danach darf die Baseline-Erstellung erfolgen.
+`install-new-server.sh` prüft diesen Zustand und ermittelt die stabilen Gerätekennungen. Die Baseline darf nur nach erfolgreicher Prüfung erstellt werden.
+
+Bestehende Array-/Pool-Zuweisungen dürfen nicht über diesen Pfad umgangen werden.
 
 ## Erfolgreicher Referenzlauf
 
