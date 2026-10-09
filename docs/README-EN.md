@@ -62,10 +62,10 @@ The following have been verified, among other things:
 - pool ID migration mechanisms within the project
 - idempotent installation orchestrator
 
-**👉 The central installation orchestrator is:**
+**👉 The central installation and update entry point is:**
 
 ```bash
-/boot/config/custom/array-serial/unraid-orchestrator.sh
+curl -fsSL https://raw.githubusercontent.com/topa-LE/unraid-array-serial/main/scripts/bootstrap.sh | bash
 ```
 
 **👉 A successful run ends with:**
@@ -213,7 +213,7 @@ boot device and then starts the installation orchestrator.
 Installation does not replace any required controlled migration of
 existing array or pool assignments.
 
-### Manual Orchestrator Invocation
+### Manual Orchestrator Invocation (Maintenance and Development)
 
 As an alternative to the GitHub bootstrap, the project files must first be completely present under:
 

@@ -62,10 +62,10 @@ Verifiziert wurden unter anderem:
 - Pool-ID-Migrationsmechanismen im Projekt
 - idempotenter Installations-Orchestrator
 
-**👉 Der zentrale Installations-Orchestrator ist:**
+**👉 Der zentrale Installations- und Update-Einstiegspunkt ist:**
 
 ```bash
-/boot/config/custom/array-serial/unraid-orchestrator.sh
+curl -fsSL https://raw.githubusercontent.com/topa-LE/unraid-array-serial/main/scripts/bootstrap.sh | bash
 ```
 
 **👉 Ein erfolgreicher Lauf endet mit:**
@@ -214,7 +214,7 @@ Unraid-Bootstick und startet anschließend den Installations-Orchestrator.
 Die Installation ersetzt keine erforderliche Migration bestehender
 Array- oder Pool-Zuweisungen.
 
-### Manueller Aufruf des Orchestrators
+### Manueller Orchestrator-Aufruf (Wartung und Entwicklung)
 
 Alternativ zum GitHub-Bootstrap müssen die Projektdateien zunächst vollständig unter:
 
