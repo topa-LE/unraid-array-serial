@@ -46,7 +46,7 @@ Das Projekt enthält zusätzlich einen getrennten Identitätspfad für den Unrai
 
 ## 🚦 Projektstatus
 
-Der aktuelle Entwicklungsstand wurde praktisch unter **Unraid 7.3.2** getestet.
+Der Entwicklungsstand wurde unter **Unraid 7.3.2** mit bestehenden Array-/Pool-Konfigurationen und Reboot-Tests sowie unter **Unraid 7.3.3** mit einer vollständigen GitHub-Erstinstallation auf einem neuen Server getestet.
 
 Verifiziert wurden unter anderem:
 
@@ -76,7 +76,7 @@ BEREIT_FUER_REBOOT
 ```
 
 > [!NOTE]
-> Die Angabe „Unraid 7.3.2 Tested“ beschreibt den praktisch verifizierten Referenzstand. Sie ist keine pauschale Aussage über jede ältere oder zukünftige Unraid-Version.
+> **Unraid 7.3.3:** GitHub-Erstinstallation mit sieben Datenlaufwerken erfolgreich abgeschlossen. Der Reboot-Test steht noch aus. Die bisherigen Array-/Migrations- und Reboot-Referenztests erfolgten unter Unraid 7.3.2.
 
 ---
 
@@ -214,9 +214,9 @@ Unraid-Bootstick und startet anschließend den Installations-Orchestrator.
 Die Installation ersetzt keine erforderliche Migration bestehender
 Array- oder Pool-Zuweisungen.
 
+### Manueller Aufruf des Orchestrators
 
-
-Die Projektdateien müssen zunächst vollständig unter:
+Alternativ zum GitHub-Bootstrap müssen die Projektdateien zunächst vollständig unter:
 
 ```text
 /boot/config/custom/array-serial/
@@ -233,9 +233,9 @@ Danach wird als `root` ausgeführt:
 > [!IMPORTANT]
 > `unraid-orchestrator.sh` lädt das Git-Repository nicht selbst herunter und synchronisiert es nicht selbst. Der Orchestrator setzt voraus, dass die aktuellen Projektdateien bereits vollständig im Projektverzeichnis vorhanden sind.
 
-Bei einer erstmaligen Baseline-Erstellung müssen bereits gespeicherte Array- beziehungsweise Pool-Zuweisungen vorhanden und eindeutig prüfbar sein.
+Bei bestehenden Array- beziehungsweise Pool-Zuweisungen gelten die kontrollierten Sicherheits- und Migrationsprüfungen.
 
-Ein vollständig jungfräuliches System ohne gespeicherte Zuweisungen ist daher noch **nicht** der Zustand, in dem automatisch eine produktive Baseline erzeugt werden kann.
+Auf einem vollständig unkonfigurierten neuen Unraid-Server ohne gespeicherte Array-/Pool-Zuweisungen kann der gesonderte New-Server-Pfad nach erfolgreicher Geräteprüfung automatisch eine servereigene Identity-Baseline erstellen. Dieser Ablauf wurde unter Unraid 7.3.3 erfolgreich getestet.
 
 Die vollständige Anleitung befindet sich unter:
 

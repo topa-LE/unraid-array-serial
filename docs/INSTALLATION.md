@@ -34,7 +34,7 @@ Vor der Installation sollten mindestens folgende Bedingungen erfüllt sein:
 - Vor produktiven Migrationen existiert ein aktuelles Backup.
 - Bestehende Gerätezuweisungen werden nicht manuell verändert.
 
-Der praktisch verifizierte Referenzstand des Projekts ist derzeit **Unraid 7.3.2**.
+Referenztests mit bestehenden Array-/Pool-Zuweisungen und Reboot wurden unter **Unraid 7.3.2** durchgeführt. Eine vollständige GitHub-Erstinstallation auf einem neuen Server mit sieben Datenlaufwerken wurde unter **Unraid 7.3.3** erfolgreich abgeschlossen; der Reboot-Test steht noch aus.
 
 ## Repository als Quelle
 
@@ -73,9 +73,9 @@ Dieser Weg ist für Erstinstallation und Update vorgesehen.
 Bei bestehenden Array- oder Pool-Zuweisungen gelten weiterhin
 die Sicherheits- und Migrationsprüfungen des Orchestrators.
 
+### Manueller Aufruf des Orchestrators
 
-
-Nach der Bereitstellung der Projektdateien wird auf dem Zielserver als `root` ausgeführt:
+Alternativ zum GitHub-Bootstrap wird nach manueller Bereitstellung der Projektdateien auf dem Zielserver als `root` ausgeführt:
 
 ```bash
 /bin/bash /boot/config/custom/array-serial/unraid-orchestrator.sh

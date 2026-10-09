@@ -46,7 +46,7 @@ The project also includes a separate identity path for the Unraid USB boot devic
 
 ## 🚦 Project Status
 
-The current development state has been practically tested on **Unraid 7.3.2**.
+The development state has been tested on **Unraid 7.3.2** with existing array/pool configurations and reboot tests, and on **Unraid 7.3.3** with a complete GitHub initial installation on a new server.
 
 The following have been verified, among other things:
 
@@ -76,7 +76,7 @@ BEREIT_FUER_REBOOT
 ```
 
 > [!NOTE]
-> The “Unraid 7.3.2 Tested” designation describes the practically verified reference state. It is not a blanket statement about every older or future Unraid version.
+> **Unraid 7.3.3:** GitHub initial installation with seven data drives completed successfully. Reboot verification is still pending. Previous array/migration and reboot reference tests were performed on Unraid 7.3.2.
 
 ---
 
@@ -197,7 +197,25 @@ The boot device therefore remains technically separate from the normal array/poo
 
 ## 📦 Installation
 
-The project files must first be completely present under:
+### GitHub Bootstrap
+
+Install or update directly from the official repository.
+
+Run on the Unraid server as `root`:
+
+~~~bash
+curl -fsSL https://raw.githubusercontent.com/topa-LE/unraid-array-serial/main/scripts/bootstrap.sh | bash
+~~~
+
+The bootstrap downloads the project files to the persistent Unraid
+boot device and then starts the installation orchestrator.
+
+Installation does not replace any required controlled migration of
+existing array or pool assignments.
+
+### Manual Orchestrator Invocation
+
+As an alternative to the GitHub bootstrap, the project files must first be completely present under:
 
 ```text
 /boot/config/custom/array-serial/
@@ -214,9 +232,9 @@ Then run the following as `root`:
 > [!IMPORTANT]
 > `unraid-orchestrator.sh` does not download or synchronize the Git repository itself. The orchestrator assumes that the current project files are already completely present in the project directory.
 
-When creating a baseline for the first time, stored array or pool assignments must already exist and must be unambiguously verifiable.
+Existing array or pool assignments remain subject to controlled safety and migration checks.
 
-A completely fresh system without stored assignments is therefore **not** yet in a state in which a production baseline can be generated automatically.
+On a completely unconfigured new Unraid server without stored array/pool assignments, the dedicated new-server path can automatically create a server-specific Identity Baseline after successful device verification. This procedure was successfully tested on Unraid 7.3.3.
 
 The complete instructions are available here:
 

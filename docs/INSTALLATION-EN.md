@@ -17,7 +17,7 @@
 
 This document describes the installation or update of Unraid Array Serial on a target system.
 
-Before the installation orchestrator is invoked, the repository files must already be completely present under the following directory:
+The GitHub bootstrap automatically provides the repository files. For manual installation, the files must already be completely present under the following directory before the installation orchestrator is invoked:
 
 ```text
 /boot/config/custom/array-serial/
@@ -34,7 +34,7 @@ Before installation, at least the following conditions should be met:
 - A current backup exists before production migrations.
 - Existing device assignments are not changed manually.
 
-The currently verified reference version of the project is **Unraid 7.3.2**.
+Reference tests with existing array/pool assignments and reboot were performed on **Unraid 7.3.2**. A complete GitHub initial installation on a new server with seven data drives was successfully completed on **Unraid 7.3.3**; reboot verification is still pending.
 
 ## Repository as Source
 
@@ -53,11 +53,29 @@ Target server
 ```
 
 > [!IMPORTANT]
-> The current `unraid-orchestrator.sh` does not synchronize or clone the repository itself. Before it is started, the project files must already be completely present under `/boot/config/custom/array-serial/`.
+> The `unraid-orchestrator.sh` does not synchronize or clone the repository itself. The GitHub bootstrap provides the project files before starting the orchestrator.
 
 ## Initial Installation
 
-After the project files have been provided, run the following on the target server as `root`:
+### Direct Installation from GitHub
+
+Run on the Unraid server as `root`:
+
+~~~bash
+curl -fsSL https://raw.githubusercontent.com/topa-LE/unraid-array-serial/main/scripts/bootstrap.sh | bash
+~~~
+
+The bootstrap downloads the repository, checks the shell syntax,
+installs the project files under
+`/boot/config/custom/array-serial/` and starts the orchestrator.
+
+This method is intended for both initial installation and updates.
+Existing array and pool assignments remain subject to the
+orchestrator's safety and migration checks.
+
+### Manual Orchestrator Invocation
+
+As an alternative to the GitHub bootstrap, after manually providing the project files, run the following on the target server as `root`:
 
 ```bash
 /bin/bash /boot/config/custom/array-serial/unraid-orchestrator.sh
@@ -257,9 +275,9 @@ A “new server” can refer to two different states:
 
 The Activation Preflight requires stored assignments as the basis for its safety check.
 
-A completely unconfigured system without such assignments is therefore not automatically ready for production baseline creation.
+A completely unconfigured new server without stored array or pool assignments is handled by the dedicated new-server installation path. After successful device verification, this path can create the server-specific Identity Baseline automatically. This procedure was successfully tested on Unraid 7.3.3.
 
-The assignment state must first be established or verified unambiguously. Only then may the baseline be created.
+For existing array or pool configurations, stored assignments must be verified unambiguously before controlled migration. For completely unconfigured new servers, the dedicated new-server installation path applies instead.
 
 ## Successful Reference Run
 
