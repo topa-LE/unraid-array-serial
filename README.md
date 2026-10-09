@@ -1,4 +1,4 @@
-![Unraid](https://img.shields.io/badge/Unraid-7.3.2%20Tested-orange?style=for-the-badge)
+![Unraid](https://img.shields.io/badge/Unraid-7.3.3%20Tested-orange?style=for-the-badge)
 ![Shell](https://img.shields.io/badge/Shell-Bash-blue?style=for-the-badge&logo=gnubash&logoColor=white)
 ![Architecture](https://img.shields.io/badge/ARCH-x86__64-blueviolet?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Reference%20Tested-brightgreen?style=for-the-badge)
