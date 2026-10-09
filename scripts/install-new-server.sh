@@ -216,7 +216,12 @@ sort -o "$tmp" "$tmp"
 [ ! -e "$BASELINE" ] ||
     stop "Baseline wurde zwischenzeitlich angelegt."
 
-ln "$tmp" "$BASELINE" ||
-    stop "Baseline konnte nicht exklusiv angelegt werden."
+(
+    set -o noclobber
+    cat "$tmp" > "$BASELINE"
+) || stop "Baseline konnte nicht exklusiv angelegt werden."
+
+cmp -s "$tmp" "$BASELINE" ||
+    stop "Gespeicherte Baseline stimmt nicht mit der Vorlage ueberein."
 
 echo "NEW_SERVER_BASELINE_OK"

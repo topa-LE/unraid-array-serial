@@ -448,7 +448,7 @@ else
     echo "Erstinstallation und bestehende Serverkonfiguration werden geprueft."
 
     if /bin/bash "$BASE/install-new-server.sh" --preview; then
-        echo "Jungfraeulicher Server erkannt."
+        echo "Neuer Unraid-Server erkannt."
         /bin/bash "$BASE/install-new-server.sh" --apply || exit 1
         echo "OK: Erstinstallations-Baseline erzeugt."
         NEW_SERVER_INSTALL=1
